@@ -139,4 +139,4 @@ A: Ensure your project has `GameplayTags` enabled in your `.uproject` file.
 
 ## 📄 License
 
-MIT License. Free to use in commercial and personal projects.
+GPL3.0 License. Free to use in open source projects.
