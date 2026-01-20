@@ -1,7 +1,7 @@
 # BlueLine Plugin
 ### Clean Wires. Shared Tags. Pure Logic.
 
-![Unreal Engine 5.6+](https://img.shields.io/badge/Unreal%20Engine-5.4%2B-blue) ![Platform Windows|Mac|Linux](https://img.shields.io/badge/Platform-Win%20|%20Mac%20|%20Linux-lightgrey) ![License GPL3](https://img.shields.io/badge/License-MIT-green)
+![Unreal Engine 5.6+](https://img.shields.io/badge/Unreal%20Engine-5.6%2B-blue) ![Platform Windows|Mac|Linux](https://img.shields.io/badge/Platform-Win%20|%20Mac%20|%20Linux-lightgrey) ![u](https://img.shields.io/badge/License-GPL3-blue)
 
 **BlueLine** is a lightweight, modular C++ plugin for Unreal Engine 5 designed to solve three specific problems in professional development workflows:
 1.  **Graph Readability:** Replaces messy Bezier "noodles" with clean, 90-degree orthogonal wiring without the performance cost of A* pathfinding.
