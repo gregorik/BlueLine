@@ -1,7 +1,7 @@
 # BlueLine Plugin
 ### Clean Wires. Shared Tags. Pure Logic.
 
-![Unreal Engine 5.6+](https://img.shields.io/badge/Unreal%20Engine-5.6%2B-blue) ![Platform Windows|Mac|Linux](https://img.shields.io/badge/Platform-Win%20|%20Mac%20|%20Linux-lightgrey) ![u](https://img.shields.io/badge/License-GPL3-blue)
+![image](https://img.shields.io/badge/-Unreal%20Engine-313131?style=for-the-badge&logo=unreal-engine&logoColor=blue) ![image](https://img.shields.io/badge/C%2B%2B-00599C?style=for-the-badge&logo=c%2B%2B&logoColor=blue) ![image](https://img.shields.io/badge/Python-FFD43B?style=for-the-badge&logo=python&logoColor=blue) ![image](https://img.shields.io/badge/json-5E5C5C?style=for-the-badge&logo=json&logoColor=white) ![image](https://img.shields.io/badge/MIT-green?style=for-the-badge) ![alt text](https://img.shields.io/github/stars/gregorik/InstantOrganicCaves) ![alt text](https://img.shields.io/badge/Support-Patreon-red) [![YouTube](https://img.shields.io/badge/YouTube-Subscribe-red?style=flat&logo=youtube)](https://www.youtube.com/@agregori) [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/C0C616ULD4)
 
 **BlueLine** is a lightweight, modular C++ plugin for Unreal Engine 5 designed to solve three specific problems in professional development workflows:
 1.  **Graph Readability:** Replaces messy Bezier "noodles" with clean, 90-degree orthogonal wiring without the performance cost of A* pathfinding.
@@ -139,4 +139,4 @@ A: Ensure your project has `GameplayTags` enabled in your `.uproject` file.
 
 ## 📄 License
 
-GPL3.0 License. Free to use in open source projects.
+MIT License.
