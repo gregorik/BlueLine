@@ -36,7 +36,8 @@ public:
 	 * Action: Aligns selected nodes to the grid relative to their inputs/outputs.
 	 * Solves: The "Diff War" weakness (only moves what you touch).
 	 */
-	TSharedPtr<FUICommandInfo> AutoFormatSelected;
+	TSharedPtr<FUICommandInfo> AutoFormatSelected; // Shift + Q
+	TSharedPtr<FUICommandInfo> RigidifyConnections; // Shift + R
 
 	/** 
 	 * Command: Toggle Wire Style

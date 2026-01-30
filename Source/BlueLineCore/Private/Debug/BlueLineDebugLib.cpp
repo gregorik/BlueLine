@@ -7,6 +7,7 @@
 #include "Engine/World.h"
 #include "UObject/UObjectGlobals.h"
 #include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/AssetData.h"
 
 void UBlueLineDebugLib::DrawBlueLineDebugTag(const UObject* WorldContextObject, FGameplayTag Tag, FVector Location, float TextScale, float Duration)
 {
@@ -85,7 +86,7 @@ UBlueLineThemeData* UBlueLineDebugLib::GetActiveThemeData()
 		LoadedData = Cast<UBlueLineThemeData>(AssetData[0].GetAsset());
 		if (LoadedData)
 		{
-			UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Auto-detected Theme Data at '%s'"), *AssetData[0].ObjectPath.ToString());
+			UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Auto-detected Theme Data at '%s'"), *AssetData[0].GetObjectPathString());
 			CachedThemeData = LoadedData;
 			return LoadedData;
 		}

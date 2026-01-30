@@ -8,6 +8,8 @@ public class BlueLineSmartTags : ModuleRules
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+	//	bUseUnity = false;
+
         PublicDependencyModuleNames.AddRange(
             new string[]
             {

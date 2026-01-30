@@ -9,6 +9,8 @@ public class BlueLineCore : ModuleRules
         // Use Shared PCHs for faster compilation
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+	//	bUseUnity = false;
+
         PublicDependencyModuleNames.AddRange(
             new string[]
             {
@@ -16,7 +18,7 @@ public class BlueLineCore : ModuleRules
                 "CoreUObject",
                 "Engine",          // Needed for UDataAsset and Runtime Debug Drawing (HUD)
                 "GameplayTags",
-                "GameplayTagsEditor", // Critical: The Theme Data asset relies on FGameplayTag structures,
+             //   "GameplayTagsEditor", // Critical: The Theme Data asset relies on FGameplayTag structures,
                 "AssetRegistry"
             }
         );

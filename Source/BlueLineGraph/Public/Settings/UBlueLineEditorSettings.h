@@ -6,15 +6,6 @@
 #include "Engine/DeveloperSettings.h"
 #include "UBlueLineEditorSettings.generated.h"
 
-/**
- * UBlueLineEditorSettings
- * 
- * Local Editor Preferences for the BlueLine plugin.
- * 
- * KEY DISTINCTION:
- * - Shared visual rules (Colors, Wire Thickness) go in UBlueLineThemeData (Source Controlled).
- * - Personal workflow preferences (Enable toggle, Sensitivity) go here (Local User Config).
- */
 UCLASS(config = EditorPerProjectUserSettings, defaultconfig, meta = (DisplayName = "BlueLine Graph"))
 class BLUELINEGRAPH_API UBlueLineEditorSettings : public UDeveloperSettings
 {
@@ -23,46 +14,38 @@ class BLUELINEGRAPH_API UBlueLineEditorSettings : public UDeveloperSettings
 public:
 	UBlueLineEditorSettings();
 
-	/** 
-	 * Master toggle for the Manhattan (Circuit Board) wire style.
-	 * If disabled, wires revert to standard Unreal splines (Bezier curves).
-	 */
+	/** Enable the Manhattan-style logic (Stubs and formatting). */
 	UPROPERTY(EditAnywhere, config, Category = "Visuals")
 	bool bEnableManhattanRouting;
 
-	/**
-	 * If true, wires that pass BEHIND a node are rendered with reduced opacity.
-	 * This helps solve the "Visual Spaghetti" problem without expensive pathfinding.
-	 */
+	/** Length of the straight line extending from the pin. */
 	UPROPERTY(EditAnywhere, config, Category = "Visuals")
-	bool bDimWiresBehindNodes;
+	float StubLength;
 
-	/**
-	 * When using the "Soft Format" (Magnet) command, how much padding 
-	 * should be left between the nodes?
-	 */
-	UPROPERTY(EditAnywhere, config, Category = "Formatting", meta = (ClampMin = "10.0", ClampMax = "200.0"))
+	/** Thickness of the stub line. */
+	UPROPERTY(EditAnywhere, config, Category = "Visuals")
+	float StubThickness;
+
+	/** If true, shows a small badge count when a pin has >1 connection. */
+	UPROPERTY(EditAnywhere, config, Category = "Visuals")
+	bool bShowConnectionCount;
+
+	// Formatting settings (kept from previous steps)
+	UPROPERTY(EditAnywhere, config, Category = "Formatting")
 	float FormatterPadding;
 
-	/**
-	 * Sensitivity of the grid snapping logic.
-	 * Higher values mean nodes snap to alignment from further away.
-	 */
-	UPROPERTY(EditAnywhere, config, Category = "Formatting", meta = (ClampMin = "50.0", ClampMax = "500.0"))
+	UPROPERTY(EditAnywhere, config, Category = "Formatting")
 	float MagnetEvaluationDistance;
 
 public:
-	/** UDeveloperSettings Interface */
 	virtual FName GetContainerName() const override { return FName("Editor"); }
 	virtual FName GetCategoryName() const override { return FName("Plugins"); }
 	virtual FName GetSectionName() const override { return FName("BlueLine Graph"); }
 
 #if WITH_EDITOR
-	/** Used to trigger a graph repaint when settings change */
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
 #endif
 
-	/** Delegate to broadcast when settings change so the Graph Factory can refresh */
 	DECLARE_MULTICAST_DELEGATE(FOnBlueLineSettingsChanged);
 	static FOnBlueLineSettingsChanged OnSettingsChanged;
 };

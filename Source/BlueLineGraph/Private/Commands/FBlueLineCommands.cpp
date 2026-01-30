@@ -22,6 +22,14 @@ void FBlueLineCommands::RegisterCommands()
 		EUserInterfaceActionType::Button, 
 		FInputChord(EKeys::F8) // Default: F8
 	);
+
+	UI_COMMAND(
+		RigidifyConnections,
+		"Rigidify Wires",
+		"Inserts Reroute nodes between selected nodes to force 90-degree lines.",
+		EUserInterfaceActionType::Button,
+		FInputChord(EModifierKey::Shift, EKeys::R)
+	);
 }
 
 #undef LOCTEXT_NAMESPACE

@@ -7,13 +7,15 @@ UBlueLineEditorSettings::FOnBlueLineSettingsChanged UBlueLineEditorSettings::OnS
 
 UBlueLineEditorSettings::UBlueLineEditorSettings()
 {
-	// Visual Defaults
 	bEnableManhattanRouting = true;
-	bDimWiresBehindNodes = true;
+	
+	// New Defaults
+	StubLength = 20.0f;
+	StubThickness = 2.0f;
+	bShowConnectionCount = true;
 
-	// Formatting Defaults
-	FormatterPadding = 80.0f;       // Comfortable breathing room
-	MagnetEvaluationDistance = 300.0f; // Snap if within ~3 grid squares
+	FormatterPadding = 80.0f;
+	MagnetEvaluationDistance = 300.0f;
 }
 
 #if WITH_EDITOR

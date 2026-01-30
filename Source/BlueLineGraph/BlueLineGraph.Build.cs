@@ -7,7 +7,7 @@ public class BlueLineGraph : ModuleRules
     public BlueLineGraph(ReadOnlyTargetRules Target) : base(Target)
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
-        bUseUnity = false;
+   //     bUseUnity = false;
 
         PublicDependencyModuleNames.AddRange(
             new string[]

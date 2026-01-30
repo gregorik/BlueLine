@@ -1,6 +1,7 @@
 // Copyright YourTeamName. All Rights Reserved.
 
 #include "BlueLineGraphModule.h"
+// #include "Formatting/BlueLineRouter.h"
 
 // Visualization Includes
 #include "Drawing/FBlueLineGraphPanelFactory.h"
@@ -8,6 +9,7 @@
 #include "Formatting/BlueLineFormatter.h"
 #include "Styles/FBlueLineStyle.h"
 #include "Settings/UBlueLineEditorSettings.h"
+#include "Routing/FBlueLineManhattanRouter.h"
 
 // Framework Includes
 #include "Commands/FBlueLineCommands.h"
@@ -51,6 +53,11 @@ void FBlueLineGraphModule::RegisterCommands()
 {
 	PluginCommands = MakeShareable(new FUICommandList);
 
+	PluginCommands->MapAction(
+        FBlueLineCommands::Get().RigidifyConnections,
+        FExecuteAction::CreateStatic(&FBlueLineManhattanRouter::RigidifySelectedConnections)
+    );
+	
 	PluginCommands->MapAction(
 		FBlueLineCommands::Get().AutoFormatSelected,
 		FExecuteAction::CreateStatic(&FBlueLineFormatter::FormatActiveGraphSelection)
