@@ -139,7 +139,45 @@ A: This indicates the plugin cannot find the Theme Data. Ensure you have created
 A: Ensure your project has `GameplayTags` enabled in your `.uproject` file.
 
 ---
+## Changelog Jan 2026
 
+#### **🚀 New Features**
+*   **Magnet Formatting (`Shift+Q`):** Added a non-destructive formatter that aligns selected nodes grid-relative to their input connections without altering the rest of the graph.
+*   **Manhattan Router (`Shift+R`):** Implemented `FBlueLineManhattanRouter`. Instead of drawing custom wires, this tool physically inserts `UK2Node_Knot` (Reroute Nodes) to force wires into orthogonal 90-degree shapes.
+    *   *Includes:* Type propagation (prevents Wildcard errors), Left-to-Right flow enforcement, and "Knot Collision" prevention.
+*   **Smart Tag Chips (Details Panel):** Custom `IPropertyTypeCustomization` for `FBlueLineTagStyle`. Displays a colored chip, a native Gameplay Tag dropdown, and a live color preview strip.
+*   **Colored Graph Pins:** Implemented `FBlueLineGraphPinFactory`. Blueprint nodes with Gameplay Tag pins now feature a high-visibility colored border matching the project's Data Asset configuration.
+*   **Runtime Debug Library:** Added `UBlueLineDebugLib::DrawBlueLineDebugTag` to render colored debug text in the game world using the shared editor team colors.
+*   **Auto-Discovery:** Logic added to `BlueLineDebugLib` to automatically scan the Asset Registry for the `BlueLineThemeData` asset, removing the requirement for hardcoded file paths.
+
+#### **🔧 Improvements & Refactors**
+*   **UE 5.7 Compatibility:**
+    *   Refactored all Slate rendering logic to use strict `FVector2f` (floats) instead of `FVector2D`.
+    *   Updated `FPaintGeometry` constructors to use `FSlateLayoutTransform`.
+*   **Tag Picker UI:** Switched from a custom button implementation to `IGameplayTagsEditorModule::MakeGameplayTagWidget`, restoring native functionalities like "Add New Tag," "Rename," and "Search."
+*   **Pin Visualization:** Updated `SBlueLineGraphPinEnhanced` to include visual stubs and "Connection Count" badges for non-tag pins.
+
+#### **🐛 Bug Fixes**
+*   **Crash Fix (Undo):** Fixed a crash occurring when checking `Undo` after routing wires. The fix ensures `UK2Node_Knot` pin types are finalized *before* being registered in the transaction history.
+*   **Crash Fix (Startup):** Fixed a crash on engine launch caused by the Pin Factory attempting to access `UGameplayTagsManager` before it was allocated. Added `GetIfAllocated()` safety checks.
+*   **Connectivity:** Fixed `Shift+R` creating tangled knots ("Spaghetti explosion") by filtering out backward-looping connections and enforcing minimum node spacing.
+*   **Linker Errors:** Resolved LNK2019 errors by correctly adding dependencies (`GameplayTags`, `GameplayTagsEditor`, `Kismet`, `ToolMenus`, `AssetRegistry`) to `Build.cs`.
+
+#### **❌ Deprecated / Removed**
+*   **F8 (Wire Rendering):** Removed `FBlueLineConnectionPolicy`. UE 5.7 removed the `CreateConnectionPolicy` hook from the Global Factory, making custom wire drawing via plugins unsupported without engine modification. Replaced by the **Manhattan Router** logic.
+*   **Toolbar Button:** Removed the "AutoFormat" toolbar button. Clicking the button caused the Graph Editor to lose focus, breaking the selection-context logic necessary for the formatter to work. The workflow is now Hotkey-only (`Shift+Q` / `Shift+R`).
+
+---
+
+### **v0.1 - v0.2 (Development History)**
+*   *Initial prototype attempts consisting of monolithic modules.*
+*   Attempted to use `FExtender` for toolbar buttons (Failed in UE5, moved to `UToolMenus`).
+*   Attempted to use `BlueprintAssist`-style global formatting (abandoned for Selection-Only approach to preserve Git Diff history).
+*   Attempted `A*` Pathfinding for wires (abandoned due to performance cost in large Animation Blueprints, switched to Geometric Heuristics).
+*   Initial split into `Core` (Runtime) and `Editor` modules to fix packaging errors.
+
+
+---
 ## 📄 License
 
 MIT License.
