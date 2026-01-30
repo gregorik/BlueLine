@@ -6,6 +6,9 @@
 [Example video 1](https://www.youtube.com/watch?v=qFOMJrigYo0) <br>
 [Update video 1](https://www.youtube.com/watch?v=pUQSMOLOd9c)
 
+<img width="1280" height="720" alt="bluel111" src="https://github.com/user-attachments/assets/c17413bf-5ded-4ce3-98f0-129d0a77e44a" />
+
+
 **BlueLine** is a lightweight, modular C++ plugin for Unreal Engine 5 designed to solve three specific problems in professional development workflows:
 1.  **Graph Readability:** Replaces messy Bezier "noodles" with rigidified, justified wiring without the performance cost of A* pathfinding.
 2.  **Team Collaboration:** Provides "Soft Formatting" tools that align nodes without reorganizing the entire graph, preventing massive Git/Perforce diffs.
