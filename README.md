@@ -9,10 +9,24 @@
 <img width="1280" height="720" alt="bluel111" src="https://github.com/user-attachments/assets/c17413bf-5ded-4ce3-98f0-129d0a77e44a" />
 
 
-**BlueLine** is a lightweight, modular C++ plugin for Unreal Engine 5 designed to solve three specific problems in professional development workflows:
-1.  **Graph Readability:** Replaces messy Bezier "noodles" with rigidified, justified wiring without the performance cost of A* pathfinding.
-2.  **Team Collaboration:** Provides "Soft Formatting" tools that align nodes without reorganizing the entire graph, preventing massive Git/Perforce diffs.
-3.  **Data Visualization:** Transforms standard Gameplay Tags in the Details Panel into colored, readable chips, synchronized across the entire team via Data Assets.
+**BlueLine** is a lightweight, modular editor productivity & visualization plugin for Unreal Engine 5.7+. At its current state (0.2), it solves the "Spaghetti Code" problem in Blueprints by enforcing strict, circuit-board-style layouts and semantically coloring data.
+
+Its current three pillars are:
+
+   1. Pathfinding ReRouting (Clean Wires):
+       * Instead of the default curved splines that overlap messily, this plugin inserts "Knot" (Reroute) nodes to force wires into grid-snapped 90-degree angles.
+       * It builds on existing UE5 logic to more intuitively "Straighten" existing connections via the Context Menu or a hotkey (Shift+Q).
+
+   2. Smart Tag Customization (Visual Semantics):
+       * It intercepts FGameplayTag pins in the Graph Editor. Instead of a plain grey text box, it renders a colored badge and a dropdown picker.
+       * The colors are driven by a central Theme Data Asset. For example, you can define Status.Damage as Red and Status.Heal as Green.
+
+   3. Unified Runtime Debugging:
+       * It provides a blueprint library (BlueLineDebugLib) to draw debug text in the 3D world.
+       * Crucially, this debug text automatically matches the colors defined in your Editor Theme. If Status.Fire is Orange in your Blueprint graph, it appears as Orange floating text above your burning character.
+                                                                                                                                                                                                                                                                                                                                                         █
+  In short: It forces your visual scripting to be as organized and strictly typed as written code, while unifying your team's visual language across Editor and Game.
+
 
 ---
 
