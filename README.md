@@ -11,7 +11,7 @@
 
 **BlueLine** is a lightweight, modular editor productivity & visualization plugin for Unreal Engine 5.7+. At its current state (0.2), it solves the "Spaghetti Code" problem in Blueprints by enforcing strict, circuit-board-style layouts and semantically coloring data.
 
-Its current three pillars are:
+Its current four pillars are:
 
    1. Pathfinding ReRouting (Clean Wires):
        * Instead of the default curved splines that overlap messily, this plugin inserts "Knot" (Reroute) nodes to force wires into grid-snapped 90-degree angles.
@@ -23,7 +23,12 @@ Its current three pillars are:
        * It intercepts FGameplayTag pins in the Graph Editor. Instead of a plain grey text box, it renders a colored badge and a dropdown picker.
        * The colors are driven by a central Theme Data Asset. For example, you can define Status.Damage as Red and Status.Heal as Green.
 
-   3. Unified Runtime Debugging:
+   3. Project-wide Graph Analysis Engine (Shift+C):
+       * It performs hierarchical Blueprint organization based on topological ranking.
+       * It performs crossing minimization and collision resolution.
+       * It performs all operations within a FScopedTransaction, allowing for instant Undo/Redo support.
+
+   4. Unified Runtime Debugging:
        * It provides a blueprint library (BlueLineDebugLib) to draw debug text in the 3D world.
        * Crucially, this debug text automatically matches the colors defined in your Editor Theme. If Status.Fire is Orange in your Blueprint graph, it appears as Orange floating text above your burning character.
                                                                                                                                                                                                                                                                                                                                                          █
