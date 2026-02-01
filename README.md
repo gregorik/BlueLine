@@ -22,13 +22,20 @@ Its current four pillars are:
    2. Smart Tag Customization (Visual Semantics):
        * It intercepts FGameplayTag pins in the Graph Editor. Instead of a plain grey text box, it renders a colored badge and a dropdown picker.
        * The colors are driven by a central Theme Data Asset. For example, you can define Status.Damage as Red and Status.Heal as Green.
-
-   3. Project-wide Graph Analysis Engine (Shift+C):
+       * Semantic Tag Intelligence: a Tag analyzer that performs a multi-factored heuristic scan. Pin-Type Topology detection that identifies logic even when nodes aren't named descriptively.
+      
+   3. Smart Color System:
+       * It implements a Brand Palette (e.g., Cyan for Movement, Red for Combat), providing immediate cognitive mapping. It applies the color alongside the tag, eliminating the friction of manual styling.
+       * Reliability: Using FLinearColor directly within the property handle ensures that these colors persist correctly in the asset data and integrate with Unreal's Undo/Redo system.
+       * The ✨ Button: Using a SComboButton with a custom menu is idiomatic to Unreal's editor style.
+       * Reasoning Engine: Providing a "Reason" for each suggestion (e.g., "Detected spatial or velocity manipulation") is critical.
+   
+   4. Project-wide Graph Analysis Engine (Shift+C):
        * It performs hierarchical Blueprint organization based on topological ranking.
        * It performs crossing minimization and collision resolution.
        * It performs all operations within a FScopedTransaction, allowing for instant Undo/Redo support.
 
-   4. Unified Runtime Debugging:
+   5. Unified Runtime Debugging:
        * It provides a blueprint library (BlueLineDebugLib) to draw debug text in the 3D world.
        * Crucially, this debug text automatically matches the colors defined in your Editor Theme. If Status.Fire is Orange in your Blueprint graph, it appears as Orange floating text above your burning character.
                                                                                                                                                                                                                                                                                                                                                          █
