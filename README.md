@@ -11,7 +11,7 @@
 
 **BlueLine** is a lightweight, modular editor productivity & visualization plugin for Unreal Engine 5.7+. At its current state (0.2), it solves the "Spaghetti Code" problem in Blueprints by enforcing strict, circuit-board-style layouts and semantically coloring data.
 
-Its current four pillars are:
+Its current pillars are:
 
    1. Pathfinding ReRouting (Clean Wires):
        * Instead of the default curved splines that overlap messily, this plugin inserts "Knot" (Reroute) nodes to force wires into grid-snapped 90-degree angles.
@@ -35,7 +35,14 @@ Its current four pillars are:
        * It performs crossing minimization and collision resolution.
        * It performs all operations within a FScopedTransaction, allowing for instant Undo/Redo support.
 
-   5. Unified Runtime Debugging:
+   5. Auto-Tagging System (Shift+T):
+       * Semantic Clustering: Automatically identifies groups of related nodes using a graph-topology-aware clustering algorithm.
+       * Intelligent Classification: Analyzes each cluster's content (function calls, variable access, pin types) to determine its purpose (e.g., Movement, Combat, AI).
+       * Automated Organization: Wraps identified clusters in a UEdGraphNode_Comment (Comment Box).
+       * Visual Identity: Automatically sets the Comment Box's Title (e.g., "✨ Movement Logic") and Color based on the identified semantic theme.
+       * Seamless Integration: Accessible via the Shift+T shortcut or the BlueLine menu, enabling one-click graph organization.
+
+   6. Unified Runtime Debugging:
        * It provides a blueprint library (BlueLineDebugLib) to draw debug text in the 3D world.
        * Crucially, this debug text automatically matches the colors defined in your Editor Theme. If Status.Fire is Orange in your Blueprint graph, it appears as Orange floating text above your burning character.
                                                                                                                                                                                                                                                                                                                                                          █
