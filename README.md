@@ -16,6 +16,8 @@ Its current three pillars are:
    1. Pathfinding ReRouting (Clean Wires):
        * Instead of the default curved splines that overlap messily, this plugin inserts "Knot" (Reroute) nodes to force wires into grid-snapped 90-degree angles.
        * It builds on existing UE5 logic to more intuitively "Straighten" existing connections via the Context Menu or a hotkey (Shift+Q).
+       * A context menu is available on <i>entry/exit node pins</i> that enables selective wire Rerouting / Rigidifying even if no other nodes are selected.
+       * BlueLine <i>connection interception</i> toggle: new connections automatically use Pathfinding Rerouting.
 
    2. Smart Tag Customization (Visual Semantics):
        * It intercepts FGameplayTag pins in the Graph Editor. Instead of a plain grey text box, it renders a colored badge and a dropdown picker.
