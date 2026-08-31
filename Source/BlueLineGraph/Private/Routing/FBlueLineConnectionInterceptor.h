@@ -1,8 +1,9 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #pragma once
 
 #include "CoreMinimal.h"
+#include "UObject/WeakObjectPtr.h"
 
 class UEdGraph;
 class UEdGraphPin;
@@ -52,6 +53,7 @@ private:
         FConnectionId(UEdGraph* InGraph, UEdGraphPin* InOutputPin, UEdGraphPin* InInputPin);
 
         bool IsValid() const;
+        bool IsStillLinked() const;
         bool operator==(const FConnectionId& Other) const;
         friend uint32 GetTypeHash(const FConnectionId& Id) { return Id.Hash; }
     };
@@ -65,6 +67,9 @@ private:
     // Check if a connection has already been processed
     static bool HasProcessedConnection(const FConnectionId& ConnectionId);
     static void MarkConnectionAsProcessed(const FConnectionId& ConnectionId);
+
+    // Record existing direct connections without routing them.
+    static void BaselineGraph(UEdGraph* Graph);
 
     // Cleanup stale entries from the processed set
     static void CleanupStaleEntries();

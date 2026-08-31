@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "Utils/BlueLineContextUtils.h"
 #include "BlueLineLog.h"
@@ -10,8 +10,49 @@
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
 
+namespace
+{
+    const FName GraphEditorType(TEXT("SGraphEditor"));
+    const FName GraphPanelType(TEXT("SGraphPanel"));
+
+    bool IsGraphEditorWidgetType(const FName WidgetType)
+    {
+        return WidgetType == GraphEditorType;
+    }
+
+    bool IsGraphPanelWidgetType(const FName WidgetType)
+    {
+        return WidgetType == GraphPanelType;
+    }
+
+    TSharedPtr<SGraphEditor> TryCastGraphEditor(const TSharedPtr<SWidget>& Widget)
+    {
+        if (!Widget.IsValid() || !IsGraphEditorWidgetType(Widget->GetType()))
+        {
+            return nullptr;
+        }
+
+        return StaticCastSharedPtr<SGraphEditor>(Widget);
+    }
+
+    TSharedPtr<SGraphPanel> TryCastGraphPanel(const TSharedPtr<SWidget>& Widget)
+    {
+        if (!Widget.IsValid() || !IsGraphPanelWidgetType(Widget->GetType()))
+        {
+            return nullptr;
+        }
+
+        return StaticCastSharedPtr<SGraphPanel>(Widget);
+    }
+}
+
 TSharedPtr<SGraphPanel> FBlueLineContextUtils::GetFocusedGraphPanel()
 {
+    if (!FSlateApplication::IsInitialized())
+    {
+        return nullptr;
+    }
+
     TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
     if (!FocusedWidget.IsValid())
     {
@@ -24,16 +65,9 @@ TSharedPtr<SGraphPanel> FBlueLineContextUtils::GetFocusedGraphPanel()
 
     while (CurrentWidget.IsValid() && Depth < 50)
     {
-        // SAFETY: Verify type before casting to prevent undefined behavior
-        const FName WidgetType = CurrentWidget->GetType();
-        if (WidgetType == FName(TEXT("SGraphPanel")) || WidgetType.ToString().Contains(TEXT("GraphPanel")))
+        if (TSharedPtr<SGraphPanel> GraphPanel = TryCastGraphPanel(CurrentWidget))
         {
-            // Additional safety: Try to cast, but verify the pointer is valid
-            TSharedPtr<SGraphPanel> GraphPanel = StaticCastSharedPtr<SGraphPanel>(CurrentWidget);
-            if (GraphPanel.IsValid())
-            {
-                return GraphPanel;
-            }
+            return GraphPanel;
         }
 
         CurrentWidget = CurrentWidget->GetParentWidget();
@@ -45,6 +79,11 @@ TSharedPtr<SGraphPanel> FBlueLineContextUtils::GetFocusedGraphPanel()
 
 TSharedPtr<SGraphEditor> FBlueLineContextUtils::GetFocusedGraphEditor()
 {
+    if (!FSlateApplication::IsInitialized())
+    {
+        return nullptr;
+    }
+
     TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
     if (!FocusedWidget.IsValid())
     {
@@ -56,15 +95,9 @@ TSharedPtr<SGraphEditor> FBlueLineContextUtils::GetFocusedGraphEditor()
 
     while (CurrentWidget.IsValid() && Depth < 50)
     {
-        // SAFETY: Verify type before casting
-        const FName WidgetType = CurrentWidget->GetType();
-        if (WidgetType == FName(TEXT("SGraphEditor")) || WidgetType.ToString().Contains(TEXT("GraphEditor")))
+        if (TSharedPtr<SGraphEditor> GraphEditor = TryCastGraphEditor(CurrentWidget))
         {
-            TSharedPtr<SGraphEditor> GraphEditor = StaticCastSharedPtr<SGraphEditor>(CurrentWidget);
-            if (GraphEditor.IsValid())
-            {
-                return GraphEditor;
-            }
+            return GraphEditor;
         }
 
         CurrentWidget = CurrentWidget->GetParentWidget();
@@ -113,9 +146,14 @@ UEdGraph* FBlueLineContextUtils::GetCurrentGraphFromActiveTab()
 {
     // Try to find graph from the active editor window
     // This is useful when keyboard focus detection fails
-    
+
+    if (!FSlateApplication::IsInitialized())
+    {
+        return nullptr;
+    }
+
     FSlateApplication& SlateApp = FSlateApplication::Get();
-    
+
     // Get the active top-level window
     TSharedPtr<SWindow> ActiveWindow = SlateApp.GetActiveTopLevelWindow();
     if (!ActiveWindow.IsValid())
@@ -133,32 +171,20 @@ UEdGraph* FBlueLineContextUtils::GetCurrentGraphFromActiveTab()
         {
             return;
         }
-        
-        // Check if this is a graph panel
-        const FName WidgetType = Widget->GetType();
-        if (WidgetType.ToString().Contains(TEXT("GraphPanel")))
+
+        TSharedPtr<SWidget> WidgetPtr = Widget;
+        if (TSharedPtr<SGraphPanel> GraphPanel = TryCastGraphPanel(WidgetPtr))
         {
-            TSharedPtr<SWidget> WidgetPtr = Widget;
-            TSharedPtr<SGraphPanel> GraphPanel = StaticCastSharedPtr<SGraphPanel>(WidgetPtr);
-            if (GraphPanel.IsValid())
-            {
-                FoundGraph = GraphPanel->GetGraphObj();
-                return;
-            }
+            FoundGraph = GraphPanel->GetGraphObj();
+            return;
         }
-        
-        // Check if this is a graph editor
-        if (WidgetType.ToString().Contains(TEXT("GraphEditor")))
+
+        if (TSharedPtr<SGraphEditor> GraphEditor = TryCastGraphEditor(WidgetPtr))
         {
-            TSharedPtr<SWidget> WidgetPtr = Widget;
-            TSharedPtr<SGraphEditor> GraphEditor = StaticCastSharedPtr<SGraphEditor>(WidgetPtr);
-            if (GraphEditor.IsValid())
-            {
-                FoundGraph = GraphEditor->GetCurrentGraph();
-                return;
-            }
+            FoundGraph = GraphEditor->GetCurrentGraph();
+            return;
         }
-        
+
         // Recurse into children
         FChildren* Children = Widget->GetChildren();
         if (Children)
@@ -182,9 +208,14 @@ int32 FBlueLineContextUtils::GetSelectedNodesFromFocus(TArray<UEdGraphNode*>& Ou
 {
     OutSelectedNodes.Empty();
 
+    if (!FSlateApplication::IsInitialized())
+    {
+        return 0;
+    }
+
     // Try keyboard focus first
     TSharedPtr<SGraphPanel> GraphPanel = GetFocusedGraphPanel();
-    
+
     // FALLBACK: If no focused panel, try to find from active tab
     if (!GraphPanel.IsValid())
     {
@@ -200,19 +231,17 @@ int32 FBlueLineContextUtils::GetSelectedNodesFromFocus(TArray<UEdGraphNode*>& Ou
                 SearchForGraphPanel = [&](TSharedRef<SWidget> Widget)
                 {
                     if (GraphPanel.IsValid()) return;
-                    
-                    const FName WidgetType = Widget->GetType();
-                    if (WidgetType.ToString().Contains(TEXT("GraphPanel")))
+
+                    TSharedPtr<SWidget> WidgetPtr = Widget;
+                    if (TSharedPtr<SGraphPanel> Panel = TryCastGraphPanel(WidgetPtr))
                     {
-                        TSharedPtr<SWidget> WidgetPtr = Widget;
-                        TSharedPtr<SGraphPanel> Panel = StaticCastSharedPtr<SGraphPanel>(WidgetPtr);
-                        if (Panel.IsValid() && Panel->GetGraphObj() == Graph)
+                        if (Panel->GetGraphObj() == Graph)
                         {
                             GraphPanel = Panel;
                             return;
                         }
                     }
-                    
+
                     FChildren* Children = Widget->GetChildren();
                     if (Children)
                     {
@@ -248,3 +277,4 @@ bool FBlueLineContextUtils::IsInBlueprintGraphContext()
 {
     return GetCurrentGraphFromFocus() != nullptr;
 }
+

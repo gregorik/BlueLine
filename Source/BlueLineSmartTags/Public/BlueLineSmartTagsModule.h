@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #pragma once
 
@@ -19,6 +19,8 @@ public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
 
+	TSharedPtr<class FUICommandList> GetPluginCommands() const { return PluginCommands; }
+
 private:
 	/** 
 	 * Helper to register custom property type layouts.
@@ -32,10 +34,10 @@ private:
 	 */
 	void UnregisterPropertyTypeCustomizations();
 
-	void RegisterCommands();
-	void ExecuteAutoTagGraph();
+    void RegisterCommands();
+    static void ExecuteAutoTagGraph();
 
-	TSharedPtr<class FUICommandList> PluginCommands;
+    TSharedPtr<class FUICommandList> PluginCommands;
 
 	/** Name of the property name to customize (FGameplayTag) */
 	FName GameplayTagName;
@@ -43,3 +45,4 @@ private:
 	/** Name of the container struct to customize (FGameplayTagContainer) */
 	FName GameplayTagContainerName;
 };
+

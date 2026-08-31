@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "Analysis/FBlueLineGraphAnalyzer.h"
 #include "BlueLineLog.h"
@@ -10,6 +10,7 @@
 #include "K2Node_Event.h"
 #include "K2Node_FunctionEntry.h"
 #include "K2Node_FunctionResult.h"
+#include "K2Node_FunctionTerminator.h"
 #include "K2Node_CallFunction.h"
 #include "K2Node_Knot.h"
 #include "Containers/Queue.h"
@@ -324,15 +325,27 @@ int32 FBlueLineGraphAnalyzer::CountWireCrossings(UEdGraph* Graph)
     }
 
     int32 CrossingCount = 0;
-    for (int32 i = 0; i < Wires.Num(); ++i)
+    
+    // Cap wire crossing calculations to prevent O(W^2) stalls on very large graphs
+    const int32 MaxWiresToAnalyze = 500;
+    int32 WiresToProcess = FMath::Min(Wires.Num(), MaxWiresToAnalyze);
+    
+    for (int32 i = 0; i < WiresToProcess; ++i)
     {
-        for (int32 j = i + 1; j < Wires.Num(); ++j)
+        for (int32 j = i + 1; j < WiresToProcess; ++j)
         {
             if (DoLinesIntersect(Wires[i].Start, Wires[i].End, Wires[j].Start, Wires[j].End))
             {
                 CrossingCount++;
             }
         }
+    }
+    
+    // Extrapolate the result if we capped it to maintain a realistic complexity score
+    if (Wires.Num() > MaxWiresToAnalyze)
+    {
+        float Ratio = (float)Wires.Num() / (float)MaxWiresToAnalyze;
+        CrossingCount = FMath::RoundToInt((float)CrossingCount * Ratio * Ratio);
     }
 
     return CrossingCount;
@@ -407,7 +420,7 @@ bool FBlueLineGraphAnalyzer::IsInputNode(UEdGraphNode* Node)
 
 bool FBlueLineGraphAnalyzer::IsOutputNode(UEdGraphNode* Node)
 {
-    return Node && (Node->IsA<UK2Node_FunctionResult>() || Node->GetName().Contains(TEXT("Return")));
+    return Node && (Node->IsA<UK2Node_FunctionResult>() || Node->IsA<UK2Node_FunctionTerminator>());
 }
 
 bool FBlueLineGraphAnalyzer::IsPureNode(UEdGraphNode* Node)

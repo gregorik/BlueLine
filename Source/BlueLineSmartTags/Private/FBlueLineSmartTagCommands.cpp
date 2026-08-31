@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "FBlueLineSmartTagCommands.h"
 
@@ -16,3 +16,4 @@ void FBlueLineSmartTagCommands::RegisterCommands()
 }
 
 #undef LOCTEXT_NAMESPACE
+

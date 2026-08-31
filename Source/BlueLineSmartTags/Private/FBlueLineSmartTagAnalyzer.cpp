@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "FBlueLineSmartTagAnalyzer.h"
 #include "BlueLineLog.h"
@@ -16,7 +16,9 @@
 #include "K2Node_MacroInstance.h"
 #include "K2Node_Knot.h"
 #include "EdGraphNode_Comment.h"
+#include "Misc/ScopeExit.h"
 #include "ScopedTransaction.h"
+#include "UBlueLineTagCommentNode.h"
 
 #define LOCTEXT_NAMESPACE "BlueLineSmartTagAnalyzer"
 
@@ -26,6 +28,9 @@ TArray<FBlueLineSmartTagSuggestion> FBlueLineSmartTagAnalyzer::SuggestTagsForGra
     if (!Graph) return Suggestions;
 
     FSemanticContext Context;
+    const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
+    const float ClusterWeightMultiplier = Settings ? Settings->ClusterWeightMultiplier : 1.0f;
+    const float ConfidenceThreshold = Settings ? Settings->SemanticConfidenceThreshold : 1.0f;
 
     // 1. Cluster-based Analysis
     TArray<FBlueLineGraphAnalyzer::FNodeCluster> Clusters = FBlueLineGraphAnalyzer::DetectNodeClusters(Graph);
@@ -39,7 +44,7 @@ TArray<FBlueLineSmartTagSuggestion> FBlueLineSmartTagAnalyzer::SuggestTagsForGra
         }
 
         // Merge cluster context into global context with cluster-size weighting
-        float ClusterMultiplier = FMath::Sqrt((float)Cluster.Nodes.Num());
+        float ClusterMultiplier = FMath::Sqrt((float)Cluster.Nodes.Num()) * ClusterWeightMultiplier;
         for (auto& It : ClusterContext.Weights)
         {
             Context.AddWeight(It.Key, It.Value * ClusterMultiplier);
@@ -55,7 +60,7 @@ TArray<FBlueLineSmartTagSuggestion> FBlueLineSmartTagAnalyzer::SuggestTagsForGra
     // 3. Convert weights to suggestions
     for (auto& It : Context.Weights)
     {
-        if (It.Value > 1.0f) // Threshold
+        if (It.Value >= ConfidenceThreshold)
         {
             FBlueLineSmartTagSuggestion Suggestion;
             Suggestion.Tag = MapSemanticToTag(It.Key);
@@ -80,9 +85,16 @@ TArray<FBlueLineSmartTagSuggestion> FBlueLineSmartTagAnalyzer::SuggestTagsForNod
 
     FSemanticContext Context;
     AnalyzeNodeSemantics(Node, Context);
+    const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
+    const float ConfidenceThreshold = Settings ? FMath::Max(0.5f, Settings->SemanticConfidenceThreshold * 0.5f) : 0.5f;
 
     for (auto& It : Context.Weights)
     {
+        if (It.Value < ConfidenceThreshold)
+        {
+            continue;
+        }
+
         FBlueLineSmartTagSuggestion Suggestion;
         Suggestion.Tag = MapSemanticToTag(It.Key);
         Suggestion.SuggestedColor = GetColorForSemantic(It.Key);
@@ -111,6 +123,11 @@ void FBlueLineSmartTagAnalyzer::AutoTagGraph(UEdGraph* Graph, const TArray<UEdGr
 
     const FScopedTransaction Transaction(LOCTEXT("AutoTagTransaction", "Auto-Tag Graph"));
     Graph->Modify();
+    const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
+    if (!Settings || !Settings->bEnableBlueLine || !Settings->bEnableSmartTags || !Settings->bEnableAutoTagCommand)
+    {
+        return;
+    }
 
     const bool bHasUserSelection = SelectedNodes.Num() > 0;
 
@@ -121,7 +138,6 @@ void FBlueLineSmartTagAnalyzer::AutoTagGraph(UEdGraph* Graph, const TArray<UEdGr
     {
         // "IQ" Check: Don't tag clusters that are too small or likely trivial
         // BUT: If user explicitly selected nodes, respect their selection regardless of size
-        const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
         int32 MinClusterSizeSelection = Settings ? Settings->MinClusterSizeSelection : 2;
         int32 MinClusterSizeAuto = Settings ? Settings->MinClusterSizeAuto : 3;
         
@@ -153,7 +169,10 @@ void FBlueLineSmartTagAnalyzer::AutoTagGraph(UEdGraph* Graph, const TArray<UEdGr
         FGameplayTag Tag;
         FLinearColor Color = FLinearColor::Gray; // Default color if not set
         
-        if (BestSemantic != ENodeSemantic::Unknown && BestWeight > 3.0f)
+        const float EffectiveWeight = BestWeight * (Settings ? Settings->ClusterWeightMultiplier : 1.0f);
+        const float ConfidenceThreshold = Settings ? Settings->SemanticConfidenceThreshold : 3.0f;
+
+        if (BestSemantic != ENodeSemantic::Unknown && EffectiveWeight >= ConfidenceThreshold)
         {
             // High confidence semantic match
             Tag = MapSemanticToTag(BestSemantic);
@@ -163,8 +182,11 @@ void FBlueLineSmartTagAnalyzer::AutoTagGraph(UEdGraph* Graph, const TArray<UEdGr
         else if (bHasUserSelection && Cluster.Nodes.Num() >= 2)
         {
             // User explicitly selected these nodes - create a generic comment box
-            // Use a tag that actually exists in the project
-            Tag = FGameplayTag::RequestGameplayTag(FName("BlueLine.Type.Unknown"), false);
+            Tag = Settings ? Settings->DefaultClusterTag : FGameplayTag();
+            if (!Tag.IsValid())
+            {
+                Tag = FGameplayTag::RequestGameplayTag(FName("BlueLine.Type.Unknown"), false);
+            }
             if (!Tag.IsValid())
             {
                 // If BlueLine tags don't exist at all, use a default empty tag
@@ -189,7 +211,7 @@ void FBlueLineSmartTagAnalyzer::AutoTagGraph(UEdGraph* Graph, const TArray<UEdGr
             // In UE graph coordinates: X increases right, Y increases down
             // Bounds.Min is top-left of the leftmost/topmost node
             // Bounds.Max is bottom-right of the rightmost/bottommost node
-            UEdGraphNode_Comment* CommentNode = NewObject<UEdGraphNode_Comment>(Graph);
+            UBlueLineTagCommentNode* CommentNode = NewObject<UBlueLineTagCommentNode>(Graph);
             
             // Position with padding - subtract padding to expand outward
             int32 CommentX = FMath::FloorToInt(Bounds.Min.X - Padding);
@@ -232,9 +254,14 @@ void FBlueLineSmartTagAnalyzer::AutoTagGraph(UEdGraph* Graph, const TArray<UEdGr
                 }
             }
             
-            CommentNode->CommentColor = Color;
+            if (Settings->bAllowBlueprintColorEdits)
+            {
+                CommentNode->CommentColor = Color;
+            }
             CommentNode->bCommentBubbleVisible = false;
             CommentNode->bCommentBubblePinned = false;
+            CommentNode->BlueLineSemanticTag = Tag;
+            CommentNode->bBlueLineAutoGenerated = true;
 
             Graph->AddNode(CommentNode, true, false);
             CommentNode->PostPlacedNewNode();
@@ -354,12 +381,15 @@ void FBlueLineSmartTagAnalyzer::AnalyzeNodeSemantics(UEdGraphNode* Node, FSemant
     {
         for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
         {
-            if (UEdGraphNode* Neighbor = LinkedPin->GetOwningNode())
+            if (LinkedPin)
             {
-                FString NeighborTitle = Neighbor->GetNodeTitle(ENodeTitleType::FullTitle).ToString();
-                if (NeighborTitle.Contains(TEXT("Damage")) || NeighborTitle.Contains(TEXT("Kill")))
+                if (UEdGraphNode* Neighbor = LinkedPin->GetOwningNode())
                 {
-                    Context.AddWeight(ENodeSemantic::Combat, 0.5f);
+                    FString NeighborTitle = Neighbor->GetNodeTitle(ENodeTitleType::FullTitle).ToString();
+                    if (NeighborTitle.Contains(TEXT("Damage")) || NeighborTitle.Contains(TEXT("Kill")))
+                    {
+                        Context.AddWeight(ENodeSemantic::Combat, 0.5f);
+                    }
                 }
             }
         }

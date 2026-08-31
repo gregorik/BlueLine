@@ -1,9 +1,9 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "BlueLineGraphModule.h"
 
 // Visualization Includes
-#include "Drawing/FBlueLineGraphPanelFactory.h"
+#include "Drawing/FBlueLineGraphConnectionFactory.h"
 #include "Drawing/FBlueLineGraphPinFactory.h"
 #include "Formatting/BlueLineFormatter.h"
 #include "Styles/FBlueLineStyle.h"  // From BlueLineCore (shared)
@@ -44,7 +44,7 @@ void FBlueLineGraphModule::StartupModule()
 	RegisterCommands();
 
 	// Factories
-	InstallGraphDrawingPolicy();
+	InstallGraphConnectionFactory();
 	InstallGraphPinFactory();
 
 	// Menu Extension
@@ -66,7 +66,7 @@ void FBlueLineGraphModule::ShutdownModule()
 
 	// Cleanup Factories
 	UninstallGraphPinFactory();
-	UninstallGraphDrawingPolicy();
+	UninstallGraphConnectionFactory();
 
 	if (PluginCommands.IsValid())
 	{
@@ -100,49 +100,46 @@ void FBlueLineGraphModule::RegisterCommands()
 		FExecuteAction::CreateStatic(&FBlueLineGraphCleaner::CleanActiveGraph)
 	);
 
-	// Shift+W Toggle (Changed to avoid conflict with Engine's "Possess or Eject Player")
+	// Shift+W Toggle (Cycles wire styles)
 	UE_LOG(LogBlueLineCore, Log, TEXT("BlueLineGraph: Mapping Shift+W to ToggleWireStyle"));
 	PluginCommands->MapAction(
 		FBlueLineCommands::Get().ToggleWireStyle,
 		FExecuteAction::CreateLambda([]() {
 			UBlueLineEditorSettings* S = GetMutableDefault<UBlueLineEditorSettings>();
-			// Cycle through routing methods: Curved -> Manhattan -> Circuit -> Hybrid -> Curved
 			int32 CurrentMethod = static_cast<int32>(S->RoutingMethod);
 			int32 NextMethod = (CurrentMethod + 1) % 4;
 			S->RoutingMethod = static_cast<EBlueLineRoutingMethod>(NextMethod);
 			S->PostEditChange();
 			S->SaveConfig();
 			
-			// FIX: Refresh all visible graph editors to apply the wire style change immediately
-			FSlateApplication& SlateApp = FSlateApplication::Get();
-			TArray<TSharedRef<SWindow>> AllWindows;
-			SlateApp.GetAllVisibleWindowsOrdered(AllWindows);
-			for (const TSharedRef<SWindow>& Window : AllWindows)
+			if (FSlateApplication::IsInitialized())
 			{
-				// Recursively search for SGraphEditor widgets
-				TArray<TSharedRef<SWidget>> WidgetStack;
-				WidgetStack.Add(Window);
-				while (WidgetStack.Num() > 0)
+				FSlateApplication& SlateApp = FSlateApplication::Get();
+				TArray<TSharedRef<SWindow>> AllWindows;
+				SlateApp.GetAllVisibleWindowsOrdered(AllWindows);
+				for (const TSharedRef<SWindow>& Window : AllWindows)
 				{
-					TSharedRef<SWidget> Widget = WidgetStack.Pop();
-					if (Widget->GetType() == TEXT("SGraphEditor"))
+					TArray<TSharedRef<SWidget>> WidgetStack;
+					WidgetStack.Add(Window);
+					while (WidgetStack.Num() > 0)
 					{
-						// Invalidate the graph editor to trigger a redraw with the new wire style
-						Widget->Invalidate(EInvalidateWidgetReason::PaintAndVolatility);
-					}
-					// Add children to stack
-					FChildren* Children = Widget->GetChildren();
-					for (int32 i = 0; i < Children->Num(); ++i)
-					{
-						WidgetStack.Add(Children->GetChildAt(i));
+						TSharedRef<SWidget> Widget = WidgetStack.Pop();
+						if (Widget->GetType() == TEXT("SGraphEditor"))
+						{
+							Widget->Invalidate(EInvalidateWidgetReason::PaintAndVolatility);
+						}
+						FChildren* Children = Widget->GetChildren();
+						for (int32 i = 0; i < Children->Num(); ++i)
+						{
+							WidgetStack.Add(Children->GetChildAt(i));
+						}
 					}
 				}
 			}
 			
-			// Log the new routing method name for user feedback
 			static const TCHAR* RoutingNames[] = { TEXT("Curved"), TEXT("Manhattan"), TEXT("Circuit"), TEXT("Hybrid") };
 			UE_LOG(LogBlueLineCore, Log, TEXT("ToggleWireStyle executed: routing=%d (%s)"), NextMethod, RoutingNames[NextMethod]);
-			})
+		})
 	);
 
 	// Bind to MainFrame (global commands)
@@ -158,20 +155,19 @@ void FBlueLineGraphModule::RegisterCommands()
 	}
 }
 
-void FBlueLineGraphModule::InstallGraphDrawingPolicy()
+void FBlueLineGraphModule::InstallGraphConnectionFactory()
 {
-	if (BlueLineGraphPanelFactory.IsValid()) return;
-	// Use explicit template to satisfy MakeShareable with the struct FGraphPanelNodeFactory
-	BlueLineGraphPanelFactory = MakeShareable<FGraphPanelNodeFactory>(new FBlueLineGraphPanelFactory());
-	FEdGraphUtilities::RegisterVisualNodeFactory(BlueLineGraphPanelFactory);
+	if (BlueLineConnectionFactory.IsValid()) return;
+	BlueLineConnectionFactory = MakeShareable(new FBlueLineGraphConnectionFactory());
+	FEdGraphUtilities::RegisterVisualPinConnectionFactory(BlueLineConnectionFactory);
 }
 
-void FBlueLineGraphModule::UninstallGraphDrawingPolicy()
+void FBlueLineGraphModule::UninstallGraphConnectionFactory()
 {
-	if (BlueLineGraphPanelFactory.IsValid())
+	if (BlueLineConnectionFactory.IsValid())
 	{
-		FEdGraphUtilities::UnregisterVisualNodeFactory(BlueLineGraphPanelFactory);
-		BlueLineGraphPanelFactory.Reset();
+		FEdGraphUtilities::UnregisterVisualPinConnectionFactory(BlueLineConnectionFactory);
+		BlueLineConnectionFactory.Reset();
 	}
 }
 
@@ -193,3 +189,4 @@ void FBlueLineGraphModule::UninstallGraphPinFactory()
 
 #undef LOCTEXT_NAMESPACE
 IMPLEMENT_MODULE(FBlueLineGraphModule, BlueLineGraph)
+

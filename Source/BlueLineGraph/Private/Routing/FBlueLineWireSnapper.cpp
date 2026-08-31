@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "Routing/FBlueLineWireSnapper.h"
 #include "Utils/BlueLineContextUtils.h"
@@ -10,13 +10,14 @@
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
 #include "GraphEditorDragDropAction.h"
+#include "Input/DragAndDrop.h"
 
 TSharedPtr<FBlueLineWireSnapper> FBlueLineWireSnapper::Instance = nullptr;
 bool FBlueLineWireSnapper::bIsDraggingWire = false;
 
 void FBlueLineWireSnapper::Enable()
 {
-    if (!Instance.IsValid())
+    if (!Instance.IsValid() && FSlateApplication::IsInitialized())
     {
         Instance = MakeShared<FBlueLineWireSnapper>();
         FSlateApplication::Get().RegisterInputPreProcessor(Instance, 0);
@@ -27,7 +28,13 @@ void FBlueLineWireSnapper::Disable()
 {
     if (Instance.IsValid())
     {
-        FSlateApplication::Get().UnregisterInputPreProcessor(Instance);
+        // Module shutdown can run after Slate teardown during editor exit.
+        if (FSlateApplication::IsInitialized())
+        {
+            FSlateApplication::Get().UnregisterInputPreProcessor(Instance);
+        }
+
+        bIsDraggingWire = false;
         Instance.Reset();
     }
 }
@@ -49,6 +56,11 @@ void FBlueLineWireSnapper::Tick(const float DeltaTime, FSlateApplication& SlateA
         return;
     }
 
+    const TSharedPtr<FDragDropOperation> DragDropOperation = SlateApp.GetDragDroppingContent();
+    const bool bIsConnectionDrag = DragDropOperation.IsValid()
+        && DragDropOperation->IsOfTypeImpl(TEXT("FDragConnection"));
+    bIsDraggingWire = bIsDraggingWire || bIsConnectionDrag;
+
     if (!bIsDraggingWire)
     {
         bHasDragOrigin = false;
@@ -60,6 +72,11 @@ void FBlueLineWireSnapper::Tick(const float DeltaTime, FSlateApplication& SlateA
 
     UEdGraph* Graph = GraphPanel->GetGraphObj();
     if (!Graph) return;
+
+    if (Graph->Nodes.Num() > 256)
+    {
+        return;
+    }
 
     FVector2D CursorPos = Cursor->GetPosition();
 
@@ -124,3 +141,4 @@ void FBlueLineWireSnapper::Tick(const float DeltaTime, FSlateApplication& SlateA
         }
     }
 }
+

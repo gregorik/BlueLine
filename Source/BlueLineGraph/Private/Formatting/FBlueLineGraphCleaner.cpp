@@ -1,21 +1,28 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "Formatting/FBlueLineGraphCleaner.h"
 #include "BlueLineLog.h"
 #include "Routing/FBlueLineManhattanRouter.h"
 #include "Analysis/FBlueLineGraphAnalyzer.h"  // Now in BlueLineCore
 #include "BlueLineCore/Public/Settings/UBlueLineEditorSettings.h"
+#include "Utils/BlueLineContextUtils.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
+#include "EdGraphNode_Comment.h"
 #include "ScopedTransaction.h"
-#include "Framework/Application/SlateApplication.h"
-#include "GraphEditor.h"
-#include "SGraphPanel.h"
 #include "K2Node_Knot.h"
 #include "Misc/DateTime.h"  // For deterministic RNG seeding
 
 #define LOCTEXT_NAMESPACE "BlueLineGraphCleaner"
+
+namespace
+{
+    bool ShouldCleanLayoutNode(const UEdGraphNode* Node)
+    {
+        return Node && !Node->IsA<UEdGraphNode_Comment>();
+    }
+}
 
 void FBlueLineGraphCleaner::CleanActiveGraph()
 {
@@ -29,6 +36,12 @@ void FBlueLineGraphCleaner::CleanActiveGraph()
 void FBlueLineGraphCleaner::CleanGraph(UEdGraph* Graph)
 {
     if (!Graph) return;
+
+    const UBlueLineEditorSettings* Settings = GetDefault<UBlueLineEditorSettings>();
+    if (!Settings || !Settings->bEnableBlueLine)
+    {
+        return;
+    }
 
     FScopedTransaction Transaction(LOCTEXT("CleanGraphTrans", "BlueLine: Clean Graph"));
     
@@ -45,7 +58,7 @@ void FBlueLineGraphCleaner::CleanGraph(UEdGraph* Graph)
 
     for (UEdGraphNode* Node : Graph->Nodes)
     {
-        if (!Node || ProcessedNodes.Contains(Node)) continue;
+        if (!ShouldCleanLayoutNode(Node) || ProcessedNodes.Contains(Node)) continue;
 
         TArray<UEdGraphNode*> Island;
         TArray<UEdGraphNode*> Stack;
@@ -54,7 +67,7 @@ void FBlueLineGraphCleaner::CleanGraph(UEdGraph* Graph)
         while (Stack.Num() > 0)
         {
             UEdGraphNode* Current = Stack.Pop();
-            if (ProcessedNodes.Contains(Current)) continue;
+            if (!ShouldCleanLayoutNode(Current) || ProcessedNodes.Contains(Current)) continue;
 
             Island.Add(Current);
             ProcessedNodes.Add(Current);
@@ -65,7 +78,7 @@ void FBlueLineGraphCleaner::CleanGraph(UEdGraph* Graph)
                 {
                     if (UEdGraphNode* Neighbor = LinkedPin ? LinkedPin->GetOwningNode() : nullptr)
                     {
-                        if (!ProcessedNodes.Contains(Neighbor))
+                        if (ShouldCleanLayoutNode(Neighbor) && !ProcessedNodes.Contains(Neighbor))
                         {
                             Stack.Push(Neighbor);
                         }
@@ -76,9 +89,8 @@ void FBlueLineGraphCleaner::CleanGraph(UEdGraph* Graph)
         Islands.Add(Island);
     }
 
-    const UBlueLineEditorSettings* Settings = GetDefault<UBlueLineEditorSettings>();
     const float HorizontalSpacing = Settings ? Settings->HorizontalSpacing : 300.0f;
-    const float VerticalSpacing = 120.0f;
+    const float VerticalSpacing = Settings ? Settings->VerticalSpacing : 120.0f;
 
     float CurrentIslandY = 0.0f;
 
@@ -108,13 +120,16 @@ void FBlueLineGraphCleaner::CleanGraph(UEdGraph* Graph)
         // If no clear roots (e.g. data loop or pure isolated nodes), pick the leftmost one
         if (Roots.Num() == 0) Roots.Add(Island[0]);
 
-        // Rank Assignment (BFS-based)
+        // Rank Assignment. Each node is ranked once so cyclic graphs converge.
         TMap<UEdGraphNode*, int32> NodeRanks;
         TArray<UEdGraphNode*> Queue;
         for (UEdGraphNode* Root : Roots)
         {
-            Queue.Add(Root);
-            NodeRanks.Add(Root, 0);
+            if (ShouldCleanLayoutNode(Root) && !NodeRanks.Contains(Root))
+            {
+                Queue.Add(Root);
+                NodeRanks.Add(Root, 0);
+            }
         }
 
         while (Queue.Num() > 0)
@@ -129,12 +144,12 @@ void FBlueLineGraphCleaner::CleanGraph(UEdGraph* Graph)
                 {
                     for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
                     {
-                        if (UEdGraphNode* Neighbor = LinkedPin->GetOwningNode())
+                        if (UEdGraphNode* Neighbor = LinkedPin ? LinkedPin->GetOwningNode() : nullptr)
                         {
-                            if (!NodeRanks.Contains(Neighbor) || NodeRanks[Neighbor] < Rank + 1)
+                            if (ShouldCleanLayoutNode(Neighbor) && !NodeRanks.Contains(Neighbor))
                             {
                                 NodeRanks.Add(Neighbor, Rank + 1);
-                                Queue.AddUnique(Neighbor);
+                                Queue.Add(Neighbor);
                             }
                         }
                     }
@@ -157,19 +172,84 @@ void FBlueLineGraphCleaner::CleanGraph(UEdGraph* Graph)
         }
 
         float IslandMaxHeight = 0.0f;
-        for (auto& KVP : RankGroups)
-        {
-            int32 Rank = KVP.Key;
-            TArray<UEdGraphNode*>& NodesInRank = KVP.Value;
+        
+        TArray<int32> Ranks;
+        RankGroups.GetKeys(Ranks);
+        Ranks.Sort();
 
+        for (int32 r = 0; r < Ranks.Num(); ++r)
+        {
+            int32 Rank = Ranks[r];
+            TArray<UEdGraphNode*>& NodesInRank = RankGroups[Rank];
+
+            float CurrentY = CurrentIslandY;
             for (int32 i = 0; i < NodesInRank.Num(); ++i)
             {
                 UEdGraphNode* Node = NodesInRank[i];
+                float TargetY = CurrentY;
+                
+                // Feature: Strict Node Alignment
+                // If it has an execution input, strictly align to it horizontally
+                bool bAlignedToExec = false;
+                for (UEdGraphPin* Pin : Node->Pins)
+                {
+                    if (Pin->Direction == EGPD_Input && Pin->PinType.PinCategory == TEXT("exec") && Pin->LinkedTo.Num() > 0)
+                    {
+                            if (UEdGraphNode* ParentNode = Pin->LinkedTo[0] ? Pin->LinkedTo[0]->GetOwningNode() : nullptr)
+                            {
+                                if (ShouldCleanLayoutNode(ParentNode))
+                                {
+                                    TargetY = ParentNode->NodePosY; // Strictly match parent's Y
+                                    bAlignedToExec = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                if (!bAlignedToExec)
+                {
+                    // Align to data inputs if no exec
+                    float SumY = 0.0f;
+                    int32 Count = 0;
+                    for (UEdGraphPin* Pin : Node->Pins)
+                    {
+                        if (Pin->Direction == EGPD_Input)
+                        {
+                            for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+                            {
+                                if (UEdGraphNode* ParentNode = LinkedPin ? LinkedPin->GetOwningNode() : nullptr)
+                                {
+                                    if (ShouldCleanLayoutNode(ParentNode))
+                                    {
+                                        SumY += ParentNode->NodePosY;
+                                        Count++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (Count > 0)
+                    {
+                        TargetY = SumY / Count;
+                    }
+                }
+
+                // Snap TargetY to a 16 unit grid to ensure neat rows (Unreal's default grid is 16)
+                TargetY = FMath::RoundToFloat(TargetY / 16.0f) * 16.0f;
+
+                // Enforce minimum vertical spacing to avoid overlaps
+                if (TargetY < CurrentY)
+                {
+                    TargetY = CurrentY;
+                }
+
                 Node->Modify();
                 Node->NodePosX = Rank * HorizontalSpacing;
-                Node->NodePosY = CurrentIslandY + (i * VerticalSpacing);
+                Node->NodePosY = TargetY;
                 
-                IslandMaxHeight = FMath::Max(IslandMaxHeight, (float)(i + 1) * VerticalSpacing);
+                CurrentY = TargetY + VerticalSpacing;
+                IslandMaxHeight = FMath::Max(IslandMaxHeight, TargetY - CurrentIslandY + VerticalSpacing);
             }
         }
 
@@ -257,7 +337,7 @@ void FBlueLineGraphCleaner::EvolutionaryCrossingMinimizer(TMap<int32, TArray<UEd
                         {
                             for (UEdGraphPin* LP : Pin->LinkedTo)
                             {
-                                if (UEdGraphNode* NodeB = LP->GetOwningNode())
+                                if (UEdGraphNode* NodeB = LP ? LP->GetOwningNode() : nullptr)
                                 {
                                     if (PosB.Contains(NodeB))
                                     {
@@ -397,37 +477,7 @@ void FBlueLineGraphCleaner::EvolutionaryCrossingMinimizer(TMap<int32, TArray<UEd
 
 UEdGraph* FBlueLineGraphCleaner::GetActiveGraph()
 {
-    TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
-    if (!FocusedWidget.IsValid()) return nullptr;
-
-    TSharedPtr<SGraphEditor> GraphEditor;
-    TSharedPtr<SWidget> CurrentWidget = FocusedWidget;
-
-    int32 Depth = 0;
-    
-    while (CurrentWidget.IsValid() && Depth < 50)
-    {
-        // SAFETY: Verify type string before casting
-        const FName CurrentType = CurrentWidget->GetType();
-        if (CurrentType.ToString().Contains(TEXT("GraphEditor")))
-        {
-            TSharedPtr<SGraphEditor> Editor = StaticCastSharedPtr<SGraphEditor>(CurrentWidget);
-            if (Editor.IsValid())
-            {
-                GraphEditor = Editor;
-                break;
-            }
-        }
-        CurrentWidget = CurrentWidget->GetParentWidget();
-        Depth++;
-    }
-
-    if (GraphEditor.IsValid())
-    {
-        return GraphEditor->GetCurrentGraph();
-    }
-
-    return nullptr;
+    return FBlueLineContextUtils::GetCurrentGraphFromFocus();
 }
 
 #undef LOCTEXT_NAMESPACE

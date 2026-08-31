@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #pragma once
 
@@ -172,6 +172,14 @@ public:
     /** Highlight wires on mouse hover */
     UPROPERTY(EditAnywhere, Config, Category = "BlueLine|Visuals", meta = (EditCondition = "bEnableBlueLine"))
     bool bHighlightWiresOnHover = true;
+
+    /**
+     * Allows BlueLine to write visual color changes into Blueprint graph assets
+     * such as Smart Tag comment box colors.
+     */
+    UPROPERTY(EditAnywhere, Config, Category = "BlueLine|Visuals",
+        meta = (EditCondition = "bEnableBlueLine", DisplayName = "Allow Blueprint Color Edits"))
+    bool bAllowBlueprintColorEdits = true;
     
     /** Wire highlight brightness multiplier */
     UPROPERTY(EditAnywhere, Config, Category = "BlueLine|Visuals|Advanced",

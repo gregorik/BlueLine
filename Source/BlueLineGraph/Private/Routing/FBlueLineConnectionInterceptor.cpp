@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "Routing/FBlueLineConnectionInterceptor.h"
 #include "BlueLineLog.h"
@@ -304,20 +304,26 @@ void FBlueLineConnectionInterceptor::OnPinConnectionCreated(UEdGraphPin* PinA, U
     }
     
     UEdGraph* Graph = OwningNode->GetGraph();
-    if (!Graph)
+    const FScopedTransaction Transaction(NSLOCTEXT("BlueLine", "AutoRouteNewConnection", "BlueLine: Auto Route New Connection"));
+    Graph->Modify();
+    if (UEdGraphNode* OutputNode = OutputPin->GetOwningNode())
     {
-        return;
+        OutputNode->Modify();
+    }
+    if (UEdGraphNode* InputNode = InputPin->GetOwningNode())
+    {
+        InputNode->Modify();
     }
 
-    // Break the direct connection
-    OutputPin->BreakLinkTo(InputPin);
-
-    // Apply Manhattan routing
-    FBlueLineManhattanRouter::RouteConnection(
+    const bool bRouted = FBlueLineManhattanRouter::RouteConnection(
         OutputPin,
         InputPin,
         Graph
     );
 
-    UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Auto-routed new connection"));
+    if (bRouted)
+    {
+        Graph->NotifyGraphChanged();
+        UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Auto-routed new connection"));
+    }
 }

@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #pragma once
 
@@ -6,7 +6,7 @@
 #include "Modules/ModuleManager.h"
 
 class FUICommandList;
-struct FGraphPanelNodeFactory;
+struct FGraphPanelPinConnectionFactory;
 class FBlueLineGraphPinFactory;
 
 class FBlueLineGraphModule : public IModuleInterface
@@ -15,14 +15,16 @@ public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
 
+	TSharedPtr<FUICommandList> GetPluginCommands() const { return PluginCommands; }
+
 private:
-	void InstallGraphDrawingPolicy();
-	void UninstallGraphDrawingPolicy();
+	void InstallGraphConnectionFactory();
+	void UninstallGraphConnectionFactory();
 	void InstallGraphPinFactory();
 	void UninstallGraphPinFactory();
 	void RegisterCommands();
 
-	TSharedPtr<FGraphPanelNodeFactory> BlueLineGraphPanelFactory;
+	TSharedPtr<FGraphPanelPinConnectionFactory> BlueLineConnectionFactory;
 	TSharedPtr<FBlueLineGraphPinFactory> BlueLinePinFactory;
 	TSharedPtr<FUICommandList> PluginCommands;
 };

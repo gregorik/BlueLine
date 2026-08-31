@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "Routing/FBlueLineManhattanRouter.h"
 
@@ -52,6 +52,12 @@ struct FPersistentPin
 
 void FBlueLineManhattanRouter::RigidifySelectedConnections()
 {
+	const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
+	if (!Settings || !Settings->bEnableBlueLine || !Settings->bEnableRigidifyCommand)
+	{
+		return;
+	}
+
 	// 1. Context Search - Use centralized utility
 	TSharedPtr<SGraphPanel> GraphPanel = FBlueLineContextUtils::GetFocusedGraphPanel();
 	if (!GraphPanel.IsValid()) return;
@@ -88,7 +94,6 @@ void FBlueLineManhattanRouter::RigidifySelectedConnections()
 				if (SelectedNodes.Contains(Target))
 				{
 					// Left-to-Right only
-					const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
 					float MinSpacing = Settings ? Settings->MinRigidifySpacing : 100.0f;
 					if (Target->NodePosX > Source->NodePosX + MinSpacing)
 					{
@@ -226,16 +231,32 @@ void FBlueLineManhattanRouter::CalculateManhattanPath(const FVector2D& Start, co
 		return;
 	}
 
-	// 2. TIGHT SPACE / BACKWARDS CASE: Not enough room for a clean Z-bend
-	if (DeltaX < SafeBuffer)
+	float StubLength = Settings ? Settings->HorizontalStubLength : 50.0f;
+	float VerticalOffset = Settings ? Settings->VerticalOffset : 80.0f;
+
+	// 2. BACKWARDS OR VERTICALLY STACKED CASE:
+	// If the target is behind the source, or too close horizontally to make a clean Z-bend,
+	// we need to route around the nodes (C-shape or U-shape loop) to prevent clipping through them.
+	if (DeltaX < StubLength * 1.5f)
 	{
-		// If backwards, we go out 40 units then loop around.
-		// If tight but forwards, we just split the difference.
-		float OutDist = (DeltaX < 0) ? 40.0f : FMath::Max(20.0f, DeltaX * 0.5f);
-		float MidX = Start.X + OutDist;
+		// Go right from source to clear it
+		OutPoints.Add(FVector2D(Start.X + StubLength, Start.Y));
 		
-		OutPoints.Add(FVector2D(MidX, Start.Y));
-		OutPoints.Add(FVector2D(MidX, End.Y));
+		// Go down (or up) to clear the nodes. 
+		// If End is below Start, we route below End. If End is above Start, we route above End.
+		// A safe fallback is to use Max Y + Offset to drop below everything.
+		float ClearY = (End.Y >= Start.Y) ? (End.Y + VerticalOffset) : (End.Y - VerticalOffset);
+		
+		OutPoints.Add(FVector2D(Start.X + StubLength, ClearY));
+		
+		// Go left past the target node's input pin, giving it a stub
+		// Target is at End.X. Target node's left edge is near End.X.
+		float TargetStubX = FMath::Min(End.X - StubLength, Start.X - StubLength);
+		OutPoints.Add(FVector2D(TargetStubX, ClearY));
+		
+		// Go up (or down) to target pin's Y
+		OutPoints.Add(FVector2D(TargetStubX, End.Y));
+		
 		OutPoints.Add(End);
 		return;
 	}
@@ -389,3 +410,5 @@ int32 FBlueLineManhattanRouter::CleanupOrphanedRerouteNodes(UEdGraph* Graph)
 
 	return Count;
 }
+
+

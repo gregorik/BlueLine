@@ -1,7 +1,8 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "UI/FBlueLineSmartTagMenuExtender.h"
 #include "BlueLineLog.h"
+#include "FBlueLineSmartTagCommands.h"
 #include "GraphEditorModule.h"
 #include "Modules/ModuleManager.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
@@ -11,13 +12,15 @@
 #include "Demos/UK2Node_KingSafety.h"
 #include "Demos/UK2Node_AWSTag.h"
 #include "Demos/UK2Node_TagDemo.h"
+#include "Utils/BlueLineContextUtils.h"
 #include "ToolMenus.h"
-#include "Framework/Application/SlateApplication.h"
-#include "GraphEditor.h"
 
 #define LOCTEXT_NAMESPACE "BlueLineSmartTags"
 
 static FDelegateHandle SmartTagMenuExtenderHandle;
+static const FName BlueLineSmartTagsOwnerName(TEXT("BlueLineSmartTags"));
+static const FName BlueLineDemoSectionName(TEXT("BlueLineDemo"));
+static const FName SpawnMessyDemoEntryName(TEXT("SpawnMessyDemo"));
 
 void FBlueLineSmartTagMenuExtender::Register()
 {
@@ -31,14 +34,15 @@ void FBlueLineSmartTagMenuExtender::Register()
     GraphEditorModule.GetAllGraphEditorContextMenuExtender().Add(Delegate);
 
     // Modern UE5 ToolMenus Fallback
-    FToolMenuOwnerScoped MenuOwner("BlueLineSmartTags");
+    FToolMenuOwnerScoped MenuOwner(BlueLineSmartTagsOwnerName);
     UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("GraphEditor.GraphContext");
     if (Menu)
     {
-        FToolMenuSection& Section = Menu->AddSection("BlueLineDemo", LOCTEXT("DemoHeader", "BlueLine Demo"));
-        
+        UToolMenus::Get()->RemoveEntry("GraphEditor.GraphContext", BlueLineDemoSectionName, SpawnMessyDemoEntryName);
+        FToolMenuSection& Section = Menu->FindOrAddSection(BlueLineDemoSectionName, LOCTEXT("DemoHeader", "BlueLine Demo"));
+
         FToolMenuEntry Entry = FToolMenuEntry::InitMenuEntry(
-            "SpawnMessyDemo",
+            SpawnMessyDemoEntryName,
             LOCTEXT("SpawnDemo", "Spawn Messy Demo"),
             LOCTEXT("SpawnDemoTip", "Generates a tangled web of demo nodes to test BlueLine organization."),
             FSlateIcon(FAppStyle::GetAppStyleSetName(), "GraphEditor.Macro_16x"),
@@ -50,36 +54,7 @@ void FBlueLineSmartTagMenuExtender::Register()
 
 void FBlueLineSmartTagMenuExtender::ExecuteSpawnMessyDemoFromMenu()
 {
-    // Fallback: Use the keyboard focus to find the graph since ToolMenus context for Graph is tricky
-    TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
-    if (!FocusedWidget.IsValid()) return;
-
-    TSharedPtr<SGraphEditor> GraphEditor;
-    TSharedPtr<SWidget> CurrentWidget = FocusedWidget;
-
-    int32 Depth = 0;
-    
-    while (CurrentWidget.IsValid() && Depth < 50)
-    {
-        // SAFETY: Verify type string before casting
-        const FName CurrentType = CurrentWidget->GetType();
-        if (CurrentType.ToString().Contains(TEXT("GraphEditor")))
-        {
-            TSharedPtr<SGraphEditor> Editor = StaticCastSharedPtr<SGraphEditor>(CurrentWidget);
-            if (Editor.IsValid())
-            {
-                GraphEditor = Editor;
-                break;
-            }
-        }
-        CurrentWidget = CurrentWidget->GetParentWidget();
-        Depth++;
-    }
-
-    if (GraphEditor.IsValid())
-    {
-        ExecuteSpawnMessyDemo(GraphEditor->GetCurrentGraph());
-    }
+    ExecuteSpawnMessyDemo(FBlueLineContextUtils::GetCurrentGraphFromFocus());
 }
 
 
@@ -95,6 +70,11 @@ void FBlueLineSmartTagMenuExtender::Unregister()
             }
         );
     }
+
+    if (UToolMenus* ToolMenus = UToolMenus::TryGet())
+    {
+        ToolMenus->UnregisterOwnerByName(BlueLineSmartTagsOwnerName);
+    }
 }
 
 TSharedRef<FExtender> FBlueLineSmartTagMenuExtender::OnExtendContextMenu(const TSharedRef<FUICommandList> CommandList, const UEdGraph* Graph, const UEdGraphNode* Node, const UEdGraphPin* Pin, bool bIsDebug)
@@ -102,7 +82,8 @@ TSharedRef<FExtender> FBlueLineSmartTagMenuExtender::OnExtendContextMenu(const T
     TSharedRef<FExtender> Extender = MakeShareable(new FExtender());
 
     // Only extend if right-clicking the graph or a node (not a pin, as that's too crowded)
-    if (!Pin && Graph)
+    const bool bIsK2Graph = Graph && Graph->GetSchema() && Graph->GetSchema()->IsA(UEdGraphSchema_K2::StaticClass());
+    if (!Pin && bIsK2Graph)
     {
         Extender->AddMenuExtension(
             "EdGraphSchemaOrganization",
@@ -124,6 +105,15 @@ TSharedRef<FExtender> FBlueLineSmartTagMenuExtender::OnExtendContextMenu(const T
 
 void FBlueLineSmartTagMenuExtender::AddGraphMenuEntries(FMenuBuilder& MenuBuilder, UEdGraph* Graph)
 {
+    if (FBlueLineSmartTagCommands::IsRegistered() && FBlueLineSmartTagCommands::Get().AutoTagGraph.IsValid())
+    {
+        MenuBuilder.BeginSection("BlueLineSmartTags", LOCTEXT("SmartTagsHeader", "BlueLine Smart Tags"));
+        {
+            MenuBuilder.AddMenuEntry(FBlueLineSmartTagCommands::Get().AutoTagGraph);
+        }
+        MenuBuilder.EndSection();
+    }
+
     MenuBuilder.BeginSection("BlueLineDemo", LOCTEXT("DemoHeader", "BlueLine Demo"));
     {
         MenuBuilder.AddMenuEntry(
@@ -140,11 +130,16 @@ void FBlueLineSmartTagMenuExtender::ExecuteSpawnMessyDemo(UEdGraph* Graph)
 {
     if (!Graph) return;
 
+    const UEdGraphSchema_K2* K2Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
+    if (!K2Schema)
+    {
+        UE_LOG(LogBlueLineCore, Warning, TEXT("BlueLine: Spawn Messy Demo is only supported in Blueprint graphs"));
+        return;
+    }
+
     const FScopedTransaction Transaction(LOCTEXT("SpawnDemoTrans", "Spawn Messy Demo"));
     Graph->Modify();
 
-    const UEdGraphSchema_K2* K2Schema = Cast<UEdGraphSchema_K2>(Graph->GetSchema());
-    
     // Create a cluster of Combat nodes
     TArray<UK2Node_KingSafety*> CombatNodes;
     for (int32 i = 0; i < 4; ++i)
@@ -187,3 +182,4 @@ void FBlueLineSmartTagMenuExtender::ExecuteSpawnMessyDemo(UEdGraph* Graph)
 }
 
 #undef LOCTEXT_NAMESPACE
+

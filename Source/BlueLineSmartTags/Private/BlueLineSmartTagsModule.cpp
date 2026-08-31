@@ -9,12 +9,12 @@
 #include "UI/FBlueLineSmartTagMenuExtender.h"
 #include "FBlueLineSmartTagCommands.h"
 #include "FBlueLineSmartTagAnalyzer.h"
-#include "Framework/Application/SlateApplication.h"
-#include "GraphEditor.h"
+#include "Utils/BlueLineContextUtils.h"
 #include "EdGraph/EdGraph.h"
 #include "Framework/Commands/UICommandList.h"
 #include "Interfaces/IMainFrameModule.h"
 #include "GameplayTagsManager.h"
+#include "Settings/UBlueLineEditorSettings.h"
 
 #define LOCTEXT_NAMESPACE "BlueLineSmartTags"
 
@@ -45,6 +45,14 @@ void FBlueLineSmartTagsModule::ShutdownModule()
 {
 	UnregisterPropertyTypeCustomizations();
 	FBlueLineSmartTagMenuExtender::Unregister();
+	if (PluginCommands.IsValid())
+	{
+		if (FBlueLineSmartTagCommands::IsRegistered())
+		{
+			PluginCommands->UnmapAction(FBlueLineSmartTagCommands::Get().AutoTagGraph);
+		}
+		PluginCommands.Reset();
+	}
 	FBlueLineSmartTagCommands::Unregister();
 }
 
@@ -54,7 +62,12 @@ void FBlueLineSmartTagsModule::RegisterCommands()
 
 	PluginCommands->MapAction(
 		FBlueLineSmartTagCommands::Get().AutoTagGraph,
-		FExecuteAction::CreateRaw(this, &FBlueLineSmartTagsModule::ExecuteAutoTagGraph)
+		FExecuteAction::CreateStatic(&FBlueLineSmartTagsModule::ExecuteAutoTagGraph),
+		FCanExecuteAction::CreateLambda([]()
+		{
+			const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
+			return Settings && Settings->bEnableBlueLine && Settings->bEnableSmartTags && Settings->bEnableAutoTagCommand;
+		})
 	);
 
 	if (FModuleManager::Get().IsModuleLoaded("MainFrame"))
@@ -66,58 +79,32 @@ void FBlueLineSmartTagsModule::RegisterCommands()
 
 void FBlueLineSmartTagsModule::ExecuteAutoTagGraph()
 {
-	// We use the "Maximal IQ" analyzer to find the graph from focus
-	TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
-	if (!FocusedWidget.IsValid()) return;
-
-	TSharedPtr<SGraphEditor> GraphEditor;
-	TSharedPtr<SWidget> CurrentWidget = FocusedWidget;
-
-	int32 Depth = 0;
-	
-	while (CurrentWidget.IsValid() && Depth < 50)
+	const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
+	if (!Settings || !Settings->bEnableBlueLine || !Settings->bEnableSmartTags || !Settings->bEnableAutoTagCommand)
 	{
-		// SAFETY: Verify type string before casting
-		const FName CurrentType = CurrentWidget->GetType();
-		if (CurrentType.ToString().Contains(TEXT("GraphEditor")))
-		{
-			TSharedPtr<SGraphEditor> Editor = StaticCastSharedPtr<SGraphEditor>(CurrentWidget);
-			if (Editor.IsValid())
-			{
-				GraphEditor = Editor;
-				break;
-			}
-		}
-		CurrentWidget = CurrentWidget->GetParentWidget();
-		Depth++;
+		return;
 	}
 
-	if (GraphEditor.IsValid())
+	UEdGraph* Graph = FBlueLineContextUtils::GetCurrentGraphFromFocus();
+	if (!Graph)
 	{
-		UEdGraph* Graph = GraphEditor->GetCurrentGraph();
-		
-		// Get selected nodes - only tag clusters containing selected nodes
-		TArray<UEdGraphNode*> SelectedNodes;
-		const FGraphPanelSelectionSet SelectedGraphNodes = GraphEditor->GetSelectedNodes();
-		for (UObject* SelectedObject : SelectedGraphNodes)
-		{
-			if (UEdGraphNode* Node = Cast<UEdGraphNode>(SelectedObject))
-			{
-				SelectedNodes.Add(Node);
-				UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Selected node '%s' at position (%d, %d)"), 
-					*Node->GetNodeTitle(ENodeTitleType::ListView).ToString(), Node->NodePosX, Node->NodePosY);
-			}
-			else
-			{
-				UE_LOG(LogBlueLineCore, Warning, TEXT("BlueLine: Selected object is not a UEdGraphNode: %s"), 
-					*SelectedObject->GetClass()->GetName());
-			}
-		}
-		
-		UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Total selected UEdGraphNodes: %d"), SelectedNodes.Num());
-		
-		FBlueLineSmartTagAnalyzer::AutoTagGraph(Graph, SelectedNodes);
+		return;
 	}
+
+	TArray<UEdGraphNode*> SelectedNodes;
+	FBlueLineContextUtils::GetSelectedNodesFromFocus(SelectedNodes);
+	for (UEdGraphNode* Node : SelectedNodes)
+	{
+		if (Node)
+		{
+			UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Selected node '%s' at position (%d, %d)"),
+				*Node->GetNodeTitle(ENodeTitleType::ListView).ToString(), Node->NodePosX, Node->NodePosY);
+		}
+	}
+
+	UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Total selected UEdGraphNodes: %d"), SelectedNodes.Num());
+
+	FBlueLineSmartTagAnalyzer::AutoTagGraph(Graph, SelectedNodes);
 }
 
 void FBlueLineSmartTagsModule::RegisterPropertyTypeCustomizations()
