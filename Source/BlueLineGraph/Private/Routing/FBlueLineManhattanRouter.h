@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #pragma once
 
@@ -16,7 +16,7 @@ public:
 	static void RigidifySelectedConnections();
 
 	// Menu Entry Point (Public)
-	static bool RouteConnection(UEdGraphPin* OutputPin, UEdGraphPin* InputPin, UEdGraph* Graph);
+	static bool RouteConnection(UEdGraphPin* OutputPin, UEdGraphPin* InputPin, UEdGraph* Graph, float StaggerOffset = 0.0f);
 
 	// Cleanup Entry Point (Public)
 	static int32 CleanupOrphanedRerouteNodes(UEdGraph* Graph);
@@ -25,7 +25,7 @@ public:
 
 private:
 	// Internal Helpers
-	static void CalculateManhattanPath(const FVector2D& Start, const FVector2D& End, TArray<FVector2D>& OutPoints);
+	static void CalculateManhattanPath(const FVector2D& Start, const FVector2D& End, TArray<FVector2D>& OutPoints, float StaggerOffset = 0.0f);
 	static UK2Node_Knot* CreateRerouteNode(UEdGraph* Graph, const FVector2D& Position, const FEdGraphPinType& PinType);
 	static void BreakSpecificLink(UEdGraphPin* Output, UEdGraphPin* Input);
 };

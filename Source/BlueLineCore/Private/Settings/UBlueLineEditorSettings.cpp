@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "Settings/UBlueLineEditorSettings.h"
 #include "BlueLineLog.h"
@@ -90,6 +90,7 @@ UBlueLineEditorSettings::UBlueLineEditorSettings()
     bShowNodeComplexity = false;
     bDebugDrawFormattingBounds = false;
     bVerboseLogging = false;
+    bExposeDemoNodes = false;
     DebugDrawDuration = 0.05f;
     DebugSphereSegments = 32;
     DebugLineThickness = 1.5f;
@@ -251,6 +252,7 @@ void UBlueLineEditorSettings::ExportSettings()
     DebugObj->SetBoolField(TEXT("bShowNodeComplexity"), bShowNodeComplexity);
     DebugObj->SetBoolField(TEXT("bDebugDrawFormattingBounds"), bDebugDrawFormattingBounds);
     DebugObj->SetBoolField(TEXT("bVerboseLogging"), bVerboseLogging);
+    DebugObj->SetBoolField(TEXT("bExposeDemoNodes"), bExposeDemoNodes);
     DebugObj->SetNumberField(TEXT("DebugDrawDuration"), DebugDrawDuration);
     DebugObj->SetNumberField(TEXT("DebugSphereSegments"), DebugSphereSegments);
     DebugObj->SetNumberField(TEXT("DebugLineThickness"), DebugLineThickness);
@@ -401,6 +403,7 @@ void UBlueLineEditorSettings::ImportSettings()
         Obj->TryGetBoolField(TEXT("bShowNodeComplexity"), bShowNodeComplexity);
         Obj->TryGetBoolField(TEXT("bDebugDrawFormattingBounds"), bDebugDrawFormattingBounds);
         Obj->TryGetBoolField(TEXT("bVerboseLogging"), bVerboseLogging);
+        Obj->TryGetBoolField(TEXT("bExposeDemoNodes"), bExposeDemoNodes);
         Obj->TryGetNumberField(TEXT("DebugDrawDuration"), DebugDrawDuration);
         Obj->TryGetNumberField(TEXT("DebugSphereSegments"), DebugSphereSegments);
         Obj->TryGetNumberField(TEXT("DebugLineThickness"), DebugLineThickness);

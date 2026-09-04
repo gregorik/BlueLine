@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "Customization/FBlueLineTagCustomization.h"
 #include "DetailWidgetRow.h"
@@ -14,6 +14,7 @@
 #include "Debug/BlueLineDebugLib.h" 
 #include "GameplayTagsEditorModule.h" 
 #include "FBlueLineSmartTagAnalyzer.h"
+#include "Utils/BlueLineContextUtils.h"
 #include "EdGraph/EdGraph.h"
 #include "EdGraph/EdGraphNode.h"
 #include "GameFramework/Actor.h"
@@ -183,26 +184,7 @@ TSharedRef<SWidget> FBlueLineTagCustomization::GenerateSuggestionMenu() const
 	// LAST RESORT: If no context from property, look for any active graph editor
 	if (!Graph)
 	{
-		TSharedPtr<SWidget> FocusedWidget = FSlateApplication::Get().GetKeyboardFocusedWidget();
-		TSharedPtr<SWidget> CurrentWidget = FocusedWidget;
-		int32 Depth = 0;
-		
-		while (CurrentWidget.IsValid() && Depth < 50)
-		{
-			// SAFETY: Verify type string before casting
-			const FName CurrentType = CurrentWidget->GetType();
-			if (CurrentType.ToString().Contains(TEXT("GraphEditor")))
-			{
-				TSharedPtr<SGraphEditor> GraphEditor = StaticCastSharedPtr<SGraphEditor>(CurrentWidget);
-				if (GraphEditor.IsValid())
-				{
-					Graph = GraphEditor->GetCurrentGraph();
-					break;
-				}
-			}
-			CurrentWidget = CurrentWidget->GetParentWidget();
-			Depth++;
-		}
+		Graph = FBlueLineContextUtils::GetCurrentGraphFromFocus();
 	}
 
 	if (!Node && !Graph)

@@ -151,6 +151,8 @@ void FBlueLineFormatter::AutoAlignSelectedNodes(const TSet<UObject*>& SelectedNo
 		return;
 	}
 
+	GraphContext->Modify();
+
 	// Sort left-to-right so parents get placed before their downstream children.
 	LayoutNodes.Sort([](const UEdGraphNode& A, const UEdGraphNode& B) {
 		return (A.NodePosX == B.NodePosX) ? (A.NodePosY < B.NodePosY) : (A.NodePosX < B.NodePosX);
@@ -195,7 +197,26 @@ void FBlueLineFormatter::AutoAlignSelectedNodes(const TSet<UObject*>& SelectedNo
 					continue;
 				}
 
-				if (PossibleParent->NodePosX >= CurrentNode->NodePosX)
+				// Check if CurrentNode is already an ancestor of PossibleParent to prevent directed cycles
+				auto IsAncestor = [&](UEdGraphNode* PotentialAncestor, UEdGraphNode* Descendant) -> bool {
+					TSet<UEdGraphNode*> Visited;
+					TArray<UEdGraphNode*> Stack;
+					Stack.Add(Descendant);
+					while (Stack.Num() > 0)
+					{
+						UEdGraphNode* Curr = Stack.Pop();
+						if (Curr == PotentialAncestor) return true;
+						if (Visited.Contains(Curr)) continue;
+						Visited.Add(Curr);
+						if (const FBlueLineAlignmentPlan* P = AlignmentPlans.Find(Curr))
+						{
+							if (P->ParentNode) Stack.Add(P->ParentNode);
+						}
+					}
+					return false;
+				};
+
+				if (IsAncestor(CurrentNode, PossibleParent))
 				{
 					continue;
 				}
@@ -293,9 +314,18 @@ void FBlueLineFormatter::AutoAlignSelectedNodes(const TSet<UObject*>& SelectedNo
 		}
 		else if (Plan->SiblingCount > 1)
 		{
-			const float CenterIndex = (Plan->SiblingCount - 1) * 0.5f;
-			const float OffsetSlots = (float)Plan->SiblingIndex - CenterIndex;
-			TargetY += FMath::RoundToInt(OffsetSlots * VerticalSpacing);
+			if (Plan->bIsExecConnection)
+			{
+				// Keep primary execution spine straight (SiblingIndex 0 stays at TargetY)
+				// Secondary execution branches offset downward
+				TargetY += FMath::RoundToInt(Plan->SiblingIndex * VerticalSpacing);
+			}
+			else
+			{
+				const float CenterIndex = (Plan->SiblingCount - 1) * 0.5f;
+				const float OffsetSlots = (float)Plan->SiblingIndex - CenterIndex;
+				TargetY += FMath::RoundToInt(OffsetSlots * VerticalSpacing);
+			}
 		}
 
 		if (CurrentNode->NodePosX != TargetX || CurrentNode->NodePosY != TargetY)

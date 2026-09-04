@@ -18,6 +18,7 @@ public:
 	TSharedPtr<FUICommandList> GetPluginCommands() const { return PluginCommands; }
 
 private:
+
 	void InstallGraphConnectionFactory();
 	void UninstallGraphConnectionFactory();
 	void InstallGraphPinFactory();
@@ -27,4 +28,5 @@ private:
 	TSharedPtr<FGraphPanelPinConnectionFactory> BlueLineConnectionFactory;
 	TSharedPtr<FBlueLineGraphPinFactory> BlueLinePinFactory;
 	TSharedPtr<FUICommandList> PluginCommands;
+	FDelegateHandle MainFrameLoadedHandle;
 };

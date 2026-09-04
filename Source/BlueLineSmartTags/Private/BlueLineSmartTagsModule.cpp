@@ -45,6 +45,13 @@ void FBlueLineSmartTagsModule::ShutdownModule()
 {
 	UnregisterPropertyTypeCustomizations();
 	FBlueLineSmartTagMenuExtender::Unregister();
+
+	if (MainFrameLoadedHandle.IsValid())
+	{
+		FModuleManager::Get().OnModulesChanged().Remove(MainFrameLoadedHandle);
+		MainFrameLoadedHandle.Reset();
+	}
+
 	if (PluginCommands.IsValid())
 	{
 		if (FBlueLineSmartTagCommands::IsRegistered())
@@ -74,6 +81,20 @@ void FBlueLineSmartTagsModule::RegisterCommands()
 	{
 		IMainFrameModule& MainFrame = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
 		MainFrame.GetMainFrameCommandBindings()->Append(PluginCommands.ToSharedRef());
+	}
+	else
+	{
+		MainFrameLoadedHandle = FModuleManager::Get().OnModulesChanged().AddLambda([this](FName Name, EModuleChangeReason Reason)
+		{
+			if (Name == "MainFrame" && Reason == EModuleChangeReason::ModuleLoaded)
+			{
+				if (FModuleManager::Get().IsModuleLoaded("MainFrame") && PluginCommands.IsValid())
+				{
+					IMainFrameModule& MainFrame = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
+					MainFrame.GetMainFrameCommandBindings()->Append(PluginCommands.ToSharedRef());
+				}
+			}
+		});
 	}
 }
 

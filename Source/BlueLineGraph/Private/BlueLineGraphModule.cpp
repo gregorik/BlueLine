@@ -68,6 +68,12 @@ void FBlueLineGraphModule::ShutdownModule()
 	UninstallGraphPinFactory();
 	UninstallGraphConnectionFactory();
 
+	if (MainFrameLoadedHandle.IsValid())
+	{
+		FModuleManager::Get().OnModulesChanged().Remove(MainFrameLoadedHandle);
+		MainFrameLoadedHandle.Reset();
+	}
+
 	if (PluginCommands.IsValid())
 	{
 		PluginCommands.Reset();
@@ -151,7 +157,18 @@ void FBlueLineGraphModule::RegisterCommands()
 	}
 	else
 	{
-		UE_LOG(LogBlueLineCore, Warning, TEXT("BlueLineGraph: MainFrame not loaded!"));
+		MainFrameLoadedHandle = FModuleManager::Get().OnModulesChanged().AddLambda([this](FName Name, EModuleChangeReason Reason)
+		{
+			if (Name == "MainFrame" && Reason == EModuleChangeReason::ModuleLoaded)
+			{
+				if (FModuleManager::Get().IsModuleLoaded("MainFrame") && PluginCommands.IsValid())
+				{
+					IMainFrameModule& MainFrame = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
+					MainFrame.GetMainFrameCommandBindings()->Append(PluginCommands.ToSharedRef());
+					UE_LOG(LogBlueLineCore, Log, TEXT("BlueLineGraph: Commands bound to MainFrame dynamically"));
+				}
+			}
+		});
 	}
 }
 

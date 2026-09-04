@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "UI/FBlueLineGraphMenuExtender.h"
 #include "Routing/FBlueLineManhattanRouter.h"
@@ -56,10 +56,17 @@ void FBlueLineGraphMenuExtender::Unregister()
 	}
 }
 
-// ... (Rest of the file remains the same) ...
+#include "BlueLineGraphModule.h"
+
 TSharedRef<FExtender> FBlueLineGraphMenuExtender::OnExtendContextMenu(const TSharedRef<FUICommandList> CommandList, const UEdGraph* Graph, const UEdGraphNode* Node, const UEdGraphPin* Pin, bool bIsDebug)
 {
-	// Implementation matches previous message (AddMenuExtension logic)
+	// Link the plugin commands to the context menu's command list so the shortcuts actually execute
+	FBlueLineGraphModule& Module = FModuleManager::GetModuleChecked<FBlueLineGraphModule>("BlueLineGraph");
+	if (Module.GetPluginCommands().IsValid())
+	{
+		CommandList->Append(Module.GetPluginCommands().ToSharedRef());
+	}
+
 	TSharedRef<FExtender> Extender = MakeShareable(new FExtender());
 
 	if (Pin)
@@ -120,6 +127,11 @@ void FBlueLineGraphMenuExtender::AddGraphMenuEntries(FMenuBuilder& MenuBuilder, 
 
 		if (FBlueLineSmartTagCommands::Get().AutoTagGraph.IsValid())
 			MenuBuilder.AddMenuEntry(FBlueLineSmartTagCommands::Get().AutoTagGraph);
+
+		MenuBuilder.AddMenuSeparator();
+
+		if (FBlueLineCommands::Get().ToggleWireStyle.IsValid())
+			MenuBuilder.AddMenuEntry(FBlueLineCommands::Get().ToggleWireStyle);
 
 		MenuBuilder.AddMenuSeparator();
 

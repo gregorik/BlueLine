@@ -13,11 +13,12 @@
 namespace
 {
     const FName GraphEditorType(TEXT("SGraphEditor"));
+    const FName GraphEditorImplType(TEXT("SGraphEditorImpl"));
     const FName GraphPanelType(TEXT("SGraphPanel"));
 
     bool IsGraphEditorWidgetType(const FName WidgetType)
     {
-        return WidgetType == GraphEditorType;
+        return WidgetType == GraphEditorType || WidgetType == GraphEditorImplType;
     }
 
     bool IsGraphPanelWidgetType(const FName WidgetType)

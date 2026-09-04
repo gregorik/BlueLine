@@ -10,6 +10,8 @@
 #include "K2Node_Knot.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "BlueprintUtilities.h" // For FEdGraphEditAction
+#include "ScopedTransaction.h"
+#include "UObject/UObjectIterator.h"
 
 bool FBlueLineConnectionInterceptor::bIsEnabled = false;
 TArray<FDelegateHandle> FBlueLineConnectionInterceptor::GraphChangedDelegateHandles;
@@ -35,15 +37,15 @@ FBlueLineConnectionInterceptor::FConnectionId::FConnectionId(UEdGraph* InGraph, 
         InputNode = InInputPin->GetOwningNode();
         InputPinName = InInputPin->PinName;
         
-        // Create a deterministic hash
-        uint64 GraphPtr = reinterpret_cast<uint64>(InGraph);
-        uint64 OutNodePtr = reinterpret_cast<uint64>(OutputNode.Get());
-        uint64 InNodePtr = reinterpret_cast<uint64>(InputNode.Get());
+        // Create a deterministic hash using UniqueIDs
+        uint32 GraphId = InGraph->GetUniqueID();
+        uint32 OutNodeId = OutputNode.IsValid() ? OutputNode->GetUniqueID() : 0;
+        uint32 InNodeId = InputNode.IsValid() ? InputNode->GetUniqueID() : 0;
         
-        Hash = GetTypeHash(GraphPtr);
-        Hash = HashCombine(Hash, GetTypeHash(OutNodePtr));
+        Hash = GetTypeHash(GraphId);
+        Hash = HashCombine(Hash, GetTypeHash(OutNodeId));
         Hash = HashCombine(Hash, GetTypeHash(OutputPinName));
-        Hash = HashCombine(Hash, GetTypeHash(InNodePtr));
+        Hash = HashCombine(Hash, GetTypeHash(InNodeId));
         Hash = HashCombine(Hash, GetTypeHash(InputPinName));
     }
 }
@@ -55,6 +57,25 @@ bool FBlueLineConnectionInterceptor::FConnectionId::IsValid() const
            InputNode.IsValid() && 
            !OutputPinName.IsNone() && 
            !InputPinName.IsNone();
+}
+
+bool FBlueLineConnectionInterceptor::FConnectionId::IsStillLinked() const
+{
+    if (!IsValid())
+    {
+        return false;
+    }
+
+    const UEdGraphNode* OutNode = OutputNode.Get();
+    const UEdGraphNode* InNode = InputNode.Get();
+    if (!OutNode || !InNode)
+    {
+        return false;
+    }
+
+    UEdGraphPin* OutputPin = OutNode->FindPin(OutputPinName, EGPD_Output);
+    UEdGraphPin* InputPin = InNode->FindPin(InputPinName, EGPD_Input);
+    return OutputPin && InputPin && OutputPin->LinkedTo.Contains(InputPin);
 }
 
 bool FBlueLineConnectionInterceptor::FConnectionId::operator==(const FConnectionId& Other) const
@@ -83,6 +104,11 @@ void FBlueLineConnectionInterceptor::Enable()
     // Clear processed connections when enabling to start fresh
     ProcessedConnections.Empty();
     BaselinedGraphs.Empty();
+
+    for (TObjectIterator<UEdGraph> It; It; ++It)
+    {
+        BaselineGraph(*It);
+    }
     
     UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Auto-routing enabled"));
 }
@@ -128,7 +154,7 @@ void FBlueLineConnectionInterceptor::CleanupStaleEntries()
     int32 RemovedCount = 0;
     for (auto It = ProcessedConnections.CreateIterator(); It; ++It)
     {
-        if (!It->IsValid())
+        if (!It->IsValid() || !It->IsStillLinked())
         {
             It.RemoveCurrent();
             ++RemovedCount;
@@ -156,6 +182,58 @@ void FBlueLineConnectionInterceptor::CleanupStaleEntries()
     
     UE_LOG(LogBlueLineCore, Verbose, TEXT("BlueLine: Cleaned up %d stale connection entries. Current count: %d"), 
         RemovedCount, ProcessedConnections.Num());
+}
+
+void FBlueLineConnectionInterceptor::BaselineGraph(UEdGraph* Graph)
+{
+    if (!Graph || BaselinedGraphs.Contains(Graph))
+    {
+        return;
+    }
+
+    const UBlueLineEditorSettings* Settings = GetDefault<UBlueLineEditorSettings>();
+    const int32 EffectiveMaxNodes = Settings ? Settings->AutoRouteMaxNodes : 128;
+    if (Graph->Nodes.Num() > EffectiveMaxNodes)
+    {
+        BaselinedGraphs.Add(Graph);
+        return;
+    }
+
+    TArray<UEdGraphNode*> NodesCopy = Graph->Nodes;
+    for (UEdGraphNode* Node : NodesCopy)
+    {
+        if (!Node || Node->IsA(UK2Node_Knot::StaticClass()))
+        {
+            continue;
+        }
+
+        TArray<UEdGraphPin*> PinsCopy = Node->Pins;
+        for (UEdGraphPin* Pin : PinsCopy)
+        {
+            if (!Pin || Pin->Direction != EGPD_Output)
+            {
+                continue;
+            }
+
+            TArray<UEdGraphPin*> LinkedToCopy = Pin->LinkedTo;
+            for (UEdGraphPin* LinkedPin : LinkedToCopy)
+            {
+                UEdGraphNode* OtherNode = LinkedPin ? LinkedPin->GetOwningNode() : nullptr;
+                if (!OtherNode || OtherNode->IsA(UK2Node_Knot::StaticClass()))
+                {
+                    continue;
+                }
+
+                FConnectionId ConnectionId(Graph, Pin, LinkedPin);
+                if (ConnectionId.IsValid())
+                {
+                    MarkConnectionAsProcessed(ConnectionId);
+                }
+            }
+        }
+    }
+
+    BaselinedGraphs.Add(Graph);
 }
 
 void FBlueLineConnectionInterceptor::OnObjectModified(UObject* Object)
@@ -187,18 +265,23 @@ void FBlueLineConnectionInterceptor::OnObjectModified(UObject* Object)
         return;
     }
 
-    // SAFETY: Don't process if there are too many nodes (prevents lag on large graphs)
-    if (Graph->Nodes.Num() > Settings->AutoRouteMaxNodes)
+    // SAFETY: Honor the user-configured AutoRouteMaxNodes ceiling (property-clamped to
+    // [10, 1000]). Auto-routing is only valuable during interactive edits; above this
+    // node count the global object-modified hook stops scanning to avoid memory churn.
+    const int32 EffectiveMaxNodes = Settings->AutoRouteMaxNodes;
+    if (Graph->Nodes.Num() > EffectiveMaxNodes)
     {
         return;
     }
 
     TGuardValue<bool> ProcessingGuard(bIsProcessing, true);
+    CleanupStaleEntries();
 
     bool bNeedsBaseline = !BaselinedGraphs.Contains(Graph);
     if (bNeedsBaseline)
     {
-        BaselinedGraphs.Add(Graph);
+        BaselineGraph(Graph);
+        return;
     }
 
     // FIX: Make a copy of the nodes array to avoid modification during iteration
@@ -255,12 +338,6 @@ void FBlueLineConnectionInterceptor::OnObjectModified(UObject* Object)
                 // Mark as processed BEFORE routing to prevent re-entrancy issues
                 MarkConnectionAsProcessed(ConnectionId);
                 
-                if (bNeedsBaseline)
-                {
-                    // Just record existing connections on first encounter, don't route them
-                    continue;
-                }
-                
                 NewlyProcessed.Add(ConnectionId);
                 
                 // Process the new connection
@@ -297,23 +374,30 @@ void FBlueLineConnectionInterceptor::OnPinConnectionCreated(UEdGraphPin* PinA, U
         return; // Invalid connection
     }
 
-    UEdGraphNode* OwningNode = OutputPin->GetOwningNode();
-    if (!OwningNode)
+    UEdGraphNode* OutputNode = OutputPin->GetOwningNode();
+    UEdGraphNode* InputNode = InputPin->GetOwningNode();
+    if (!OutputNode || !InputNode)
+    {
+        return;
+    }
+
+    // Do not auto-route if nodes are backwards or too close
+    const float MinDist = Settings ? Settings->MinRigidifySpacing : 100.0f;
+    if (InputNode->NodePosX < OutputNode->NodePosX + MinDist)
     {
         return;
     }
     
-    UEdGraph* Graph = OwningNode->GetGraph();
+    UEdGraph* Graph = OutputNode->GetGraph();
+    if (!Graph)
+    {
+        return;
+    }
+
     const FScopedTransaction Transaction(NSLOCTEXT("BlueLine", "AutoRouteNewConnection", "BlueLine: Auto Route New Connection"));
     Graph->Modify();
-    if (UEdGraphNode* OutputNode = OutputPin->GetOwningNode())
-    {
-        OutputNode->Modify();
-    }
-    if (UEdGraphNode* InputNode = InputPin->GetOwningNode())
-    {
-        InputNode->Modify();
-    }
+    OutputNode->Modify();
+    InputNode->Modify();
 
     const bool bRouted = FBlueLineManhattanRouter::RouteConnection(
         OutputPin,

@@ -5,15 +5,12 @@
 #include "BlueprintNodeSpawner.h"
 #include "EdGraphSchema_K2.h"
 #include "KismetCompiler.h"
+#include "Settings/UBlueLineEditorSettings.h"
 
 #define LOCTEXT_NAMESPACE "K2Node_TagDemo"
 
 void UK2Node_TagDemo::AllocateDefaultPins()
 {
-	// FIX: Clear existing pins before creating new ones to prevent duplication
-	// when node is reconstructed (e.g., during compilation or undo/redo)
-	Pins.Reset();
-	
 	CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_Exec, UEdGraphSchema_K2::PN_Execute);
 	CreatePin(EGPD_Output, UEdGraphSchema_K2::PC_Exec, UEdGraphSchema_K2::PN_Then);
 }
@@ -40,6 +37,12 @@ FText UK2Node_TagDemo::GetMenuCategory() const
 
 void UK2Node_TagDemo::GetMenuActions(FBlueprintActionDatabaseRegistrar& ActionRegistrar) const
 {
+	const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
+	if (!Settings || !Settings->bExposeDemoNodes)
+	{
+		return;
+	}
+
 	UClass* ActionKey = GetClass();
 	if (ActionRegistrar.IsOpenForRegistration(ActionKey))
 	{

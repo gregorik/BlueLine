@@ -297,6 +297,38 @@ TArray<TArray<UEdGraphNode*>> FBlueLineGraphAnalyzer::FindExecutionChains(UEdGra
     return Chains;
 }
 
+static FVector2D GetPinPosition(const UEdGraphPin* Pin)
+{
+    if (!Pin) return FVector2D::ZeroVector;
+    UEdGraphNode* Node = Pin->GetOwningNode();
+    if (!Node) return FVector2D::ZeroVector;
+
+    if (Node->IsA<UK2Node_Knot>())
+    {
+        return FVector2D((float)Node->NodePosX + 16.0f, (float)Node->NodePosY + 16.0f);
+    }
+
+    float XOffset = 0.0f;
+    if (Pin->Direction == EGPD_Output)
+    {
+        XOffset = (Node->NodeWidth > 0) ? (float)Node->NodeWidth : 200.0f;
+    }
+
+    float YOffset = 48.0f;
+    int32 VisibleIndex = 0;
+    for (const UEdGraphPin* P : Node->Pins)
+    {
+        if (P == Pin) break;
+        if (P && P->Direction == Pin->Direction && !P->bHidden)
+        {
+            VisibleIndex++;
+        }
+    }
+    YOffset += (VisibleIndex * 24.0f) + 12.0f;
+
+    return FVector2D((float)Node->NodePosX + XOffset, (float)Node->NodePosY + YOffset);
+}
+
 int32 FBlueLineGraphAnalyzer::CountWireCrossings(UEdGraph* Graph)
 {
     if (!Graph) return 0;
@@ -307,17 +339,17 @@ int32 FBlueLineGraphAnalyzer::CountWireCrossings(UEdGraph* Graph)
     for (UEdGraphNode* Node : Graph->Nodes)
     {
         if (!Node) continue;
-        FVector2D StartPos = GetNodePosition(Node);
 
         for (UEdGraphPin* Pin : Node->Pins)
         {
             if (Pin && Pin->Direction == EGPD_Output)
             {
+                const FVector2D StartPos = GetPinPosition(Pin);
                 for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
                 {
                     if (LinkedPin)
                     {
-                        Wires.Add({StartPos, GetNodePosition(LinkedPin->GetOwningNode())});
+                        Wires.Add({StartPos, GetPinPosition(LinkedPin)});
                     }
                 }
             }
@@ -482,6 +514,12 @@ int32 FBlueLineGraphAnalyzer::CalculateNodeDepth(UEdGraphNode* Node, UEdGraph* G
 
 bool FBlueLineGraphAnalyzer::DoLinesIntersect(const FVector2D& A1, const FVector2D& A2, const FVector2D& B1, const FVector2D& B2)
 {
+    // Shared endpoints are common connection points, not wire crossings
+    if (A1.Equals(B1, 1.0f) || A1.Equals(B2, 1.0f) || A2.Equals(B1, 1.0f) || A2.Equals(B2, 1.0f))
+    {
+        return false;
+    }
+
     auto CCW = [](const FVector2D& A, const FVector2D& B, const FVector2D& C) {
         return (C.Y - A.Y) * (B.X - A.X) > (B.Y - A.Y) * (C.X - A.X);
     };
@@ -496,7 +534,7 @@ FVector2D FBlueLineGraphAnalyzer::GetNodePosition(UEdGraphNode* Node)
 float FBlueLineGraphAnalyzer::CalculateConnectionLength(UEdGraphPin* OutputPin, UEdGraphPin* InputPin)
 {
     if (!OutputPin || !InputPin) return 0.0f;
-    return FVector2D::Distance(GetNodePosition(OutputPin->GetOwningNode()), GetNodePosition(InputPin->GetOwningNode()));
+    return FVector2D::Distance(GetPinPosition(OutputPin), GetPinPosition(InputPin));
 }
 
 void FBlueLineGraphAnalyzer::CalculateClusterBounds(FNodeCluster& Cluster)
@@ -518,9 +556,10 @@ void FBlueLineGraphAnalyzer::CalculateClusterBounds(FNodeCluster& Cluster)
             FVector2D Pos = GetNodePosition(Node);
             
             // Account for node width and height to get full bounds
-            // Use max to ensure minimum dimensions (some nodes report 0 size)
-            float NodeW = FMath::Max((float)Node->NodeWidth, MinNodeWidth);
-            float NodeH = FMath::Max((float)Node->NodeHeight, MinNodeHeight);
+            // Knots (reroute nodes) are compact (32x32)
+            const bool bIsKnot = Node->IsA<UK2Node_Knot>();
+            float NodeW = bIsKnot ? 32.0f : FMath::Max((float)Node->NodeWidth, MinNodeWidth);
+            float NodeH = bIsKnot ? 32.0f : FMath::Max((float)Node->NodeHeight, MinNodeHeight);
             FVector2D BottomRight = Pos + FVector2D(NodeW, NodeH);
             
             Sum += Pos;

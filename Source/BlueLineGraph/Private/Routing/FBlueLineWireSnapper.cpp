@@ -46,6 +46,7 @@ void FBlueLineWireSnapper::Tick(const float DeltaTime, FSlateApplication& SlateA
     {
         bHasDragOrigin = false;
         bIsDraggingWire = false;
+        DragSourcePin.SetPin(nullptr);
         return;
     }
 
@@ -53,6 +54,7 @@ void FBlueLineWireSnapper::Tick(const float DeltaTime, FSlateApplication& SlateA
     {
         bHasDragOrigin = false;
         bIsDraggingWire = false;
+        DragSourcePin.SetPin(nullptr);
         return;
     }
 
@@ -64,6 +66,7 @@ void FBlueLineWireSnapper::Tick(const float DeltaTime, FSlateApplication& SlateA
     if (!bIsDraggingWire)
     {
         bHasDragOrigin = false;
+        DragSourcePin.SetPin(nullptr);
         return;
     }
 
@@ -79,24 +82,46 @@ void FBlueLineWireSnapper::Tick(const float DeltaTime, FSlateApplication& SlateA
     }
 
     FVector2D CursorPos = Cursor->GetPosition();
+    FGeometry PanelGeometry = GraphPanel->GetTickSpaceGeometry();
+    FVector2D LocalCursor = PanelGeometry.AbsoluteToLocal(CursorPos);
+    FVector2D GraphCursor = GraphPanel->PanelCoordToGraphCoord(LocalCursor);
 
     if (!bHasDragOrigin)
     {
         DragOriginScreen = CursorPos;
         bHasDragOrigin = true;
+
+        // Detect source pin near drag origin
+        UEdGraphPin* DetectedSourcePin = nullptr;
+        float BestDistSq = FMath::Square(60.0f);
+        for (UEdGraphNode* Node : Graph->Nodes)
+        {
+            if (!Node) continue;
+            for (UEdGraphPin* Pin : Node->Pins)
+            {
+                if (!Pin || Pin->bHidden) continue;
+                const FVector2D PinGraphPos = FBlueLineManhattanRouter::GetPinPos(Pin);
+                const float DistSq = FVector2D::DistSquared(GraphCursor, PinGraphPos);
+                if (DistSq < BestDistSq)
+                {
+                    BestDistSq = DistSq;
+                    DetectedSourcePin = Pin;
+                }
+            }
+        }
+        DragSourcePin.SetPin(DetectedSourcePin);
     }
 
     // Don't snap if we just started dragging (prevent snapping to the pin we drag from)
-    if (FVector2D::Distance(DragOriginScreen, CursorPos) < 20.0f)
+    if (FVector2D::Distance(DragOriginScreen, CursorPos) < 25.0f)
     {
         return;
     }
 
-    FGeometry PanelGeometry = GraphPanel->GetTickSpaceGeometry();
-    FVector2D LocalCursor = PanelGeometry.AbsoluteToLocal(CursorPos);
-    FVector2D GraphCursor = GraphPanel->PanelCoordToGraphCoord(LocalCursor);
+    UEdGraphPin* SourcePin = DragSourcePin.Get();
+    const UEdGraphSchema* Schema = Graph->GetSchema();
 
-    // Find nearest pin
+    // Find nearest valid and compatible pin
     UEdGraphPin* NearestPin = nullptr;
     float MinDistSq = FMath::Square(Settings->WireSnapRadius); 
 
@@ -113,6 +138,22 @@ void FBlueLineWireSnapper::Tick(const float DeltaTime, FSlateApplication& SlateA
         for (UEdGraphPin* Pin : Node->Pins)
         {
             if (!Pin || Pin->bHidden) continue;
+
+            if (SourcePin)
+            {
+                if (Pin == SourcePin) continue;
+                if (Pin->GetOwningNode() == SourcePin->GetOwningNode()) continue;
+                if (Pin->Direction == SourcePin->Direction) continue;
+
+                if (Schema)
+                {
+                    const FPinConnectionResponse Response = Schema->CanCreateConnection(SourcePin, Pin);
+                    if (Response.Response == CONNECT_RESPONSE_DISALLOW)
+                    {
+                        continue;
+                    }
+                }
+            }
 
             FVector2D PinGraphPos = FBlueLineManhattanRouter::GetPinPos(Pin);
             float DistSq = FVector2D::DistSquared(GraphCursor, PinGraphPos);
@@ -141,4 +182,3 @@ void FBlueLineWireSnapper::Tick(const float DeltaTime, FSlateApplication& SlateA
         }
     }
 }
-

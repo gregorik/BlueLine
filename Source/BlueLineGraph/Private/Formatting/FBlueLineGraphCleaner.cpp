@@ -13,15 +13,80 @@
 #include "ScopedTransaction.h"
 #include "K2Node_Knot.h"
 #include "Misc/DateTime.h"  // For deterministic RNG seeding
+#include "EdGraphSchema_K2.h"
 
 #define LOCTEXT_NAMESPACE "BlueLineGraphCleaner"
 
 namespace
 {
-    bool ShouldCleanLayoutNode(const UEdGraphNode* Node)
-    {
-        return Node && !Node->IsA<UEdGraphNode_Comment>();
-    }
+	constexpr int32 MinNodeWidthEstimate = 200;
+	constexpr int32 MinNodeHeightEstimate = 90;
+
+	bool ShouldCleanLayoutNode(const UEdGraphNode* Node)
+	{
+		return Node && !Node->IsA<UEdGraphNode_Comment>() && !Node->IsA<UK2Node_Knot>();
+	}
+
+	bool IsExecPin(const UEdGraphPin* Pin)
+	{
+		return Pin && Pin->PinType.PinCategory == UEdGraphSchema_K2::PC_Exec;
+	}
+
+	bool IsExecNode(const UEdGraphNode* Node)
+	{
+		if (!Node) return false;
+		for (const UEdGraphPin* Pin : Node->Pins)
+		{
+			if (IsExecPin(Pin))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	int32 GetNodeEffectiveWidth(const UEdGraphNode* Node)
+	{
+		return FMath::Max(Node ? Node->NodeWidth : 0, MinNodeWidthEstimate);
+	}
+
+	int32 GetNodeEffectiveHeight(const UEdGraphNode* Node)
+	{
+		return FMath::Max(Node ? Node->NodeHeight : 0, MinNodeHeightEstimate);
+	}
+
+	void CollectNeighborsThroughKnots(
+		UEdGraphPin* Pin,
+		TArray<UEdGraphNode*>& OutNeighbors,
+		TSet<UK2Node_Knot*>& OutTraversedKnots,
+		TSet<UEdGraphPin*>& VisitedPins)
+	{
+		if (!Pin || VisitedPins.Contains(Pin)) return;
+		VisitedPins.Add(Pin);
+
+		for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+		{
+			if (!LinkedPin) continue;
+			UEdGraphNode* OwningNode = LinkedPin->GetOwningNode();
+			if (!OwningNode) continue;
+
+			if (UK2Node_Knot* Knot = Cast<UK2Node_Knot>(OwningNode))
+			{
+				OutTraversedKnots.Add(Knot);
+				for (UEdGraphPin* KnotPin : Knot->Pins)
+				{
+					if (KnotPin && KnotPin->Direction != LinkedPin->Direction)
+					{
+						CollectNeighborsThroughKnots(KnotPin, OutNeighbors, OutTraversedKnots, VisitedPins);
+					}
+				}
+			}
+			else if (ShouldCleanLayoutNode(OwningNode))
+			{
+				OutNeighbors.AddUnique(OwningNode);
+			}
+		}
+	}
 }
 
 void FBlueLineGraphCleaner::CleanActiveGraph()
@@ -35,444 +100,776 @@ void FBlueLineGraphCleaner::CleanActiveGraph()
 
 void FBlueLineGraphCleaner::CleanGraph(UEdGraph* Graph)
 {
-    if (!Graph) return;
+	if (!Graph) return;
 
-    const UBlueLineEditorSettings* Settings = GetDefault<UBlueLineEditorSettings>();
-    if (!Settings || !Settings->bEnableBlueLine)
-    {
-        return;
-    }
+	const UBlueLineEditorSettings* Settings = GetDefault<UBlueLineEditorSettings>();
+	if (!Settings || !Settings->bEnableBlueLine)
+	{
+		return;
+	}
 
-    FScopedTransaction Transaction(LOCTEXT("CleanGraphTrans", "BlueLine: Clean Graph"));
-    
-    // Clean up clutter first
-    FBlueLineManhattanRouter::CleanupOrphanedRerouteNodes(Graph);
+	FScopedTransaction Transaction(LOCTEXT("CleanGraphTrans", "BlueLine: Clean Graph"));
+	Graph->Modify();
 
-    // 1. Analyze
-    FBlueLineGraphAnalyzer::FAnalysisResult Analysis = FBlueLineGraphAnalyzer::AnalyzeGraph(Graph);
-    
-    // 2. Identify Connected Components (Islands)
-    // We treat execution wires as the primary backbone, data wires as secondary.
-    TArray<TArray<UEdGraphNode*>> Islands;
-    TSet<UEdGraphNode*> ProcessedNodes;
+	// Clean up dead reroutes first
+	FBlueLineManhattanRouter::CleanupOrphanedRerouteNodes(Graph);
 
-    for (UEdGraphNode* Node : Graph->Nodes)
-    {
-        if (!ShouldCleanLayoutNode(Node) || ProcessedNodes.Contains(Node)) continue;
+	FBlueLineGraphAnalyzer::FAnalysisResult Analysis = FBlueLineGraphAnalyzer::AnalyzeGraph(Graph);
 
-        TArray<UEdGraphNode*> Island;
-        TArray<UEdGraphNode*> Stack;
-        Stack.Push(Node);
+	// Snapshot original comment memberships before any node moves
+	struct FCommentSnapshot
+	{
+		UEdGraphNode_Comment* CommentNode = nullptr;
+		TArray<UEdGraphNode*> EnclosedNodes;
+	};
+	TArray<FCommentSnapshot> CommentSnapshots;
 
-        while (Stack.Num() > 0)
-        {
-            UEdGraphNode* Current = Stack.Pop();
-            if (!ShouldCleanLayoutNode(Current) || ProcessedNodes.Contains(Current)) continue;
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (UEdGraphNode_Comment* Comment = Cast<UEdGraphNode_Comment>(Node))
+		{
+			FCommentSnapshot Snapshot;
+			Snapshot.CommentNode = Comment;
+			const FSlateRect CommentRect(
+				(float)Comment->NodePosX,
+				(float)Comment->NodePosY,
+				(float)(Comment->NodePosX + Comment->NodeWidth),
+				(float)(Comment->NodePosY + Comment->NodeHeight)
+			);
 
-            Island.Add(Current);
-            ProcessedNodes.Add(Current);
+			for (UEdGraphNode* InnerNode : Graph->Nodes)
+			{
+				if (ShouldCleanLayoutNode(InnerNode))
+				{
+					const float InnerW = (float)GetNodeEffectiveWidth(InnerNode);
+					const float InnerH = (float)GetNodeEffectiveHeight(InnerNode);
+					if (InnerNode->NodePosX >= CommentRect.Left &&
+						(InnerNode->NodePosX + InnerW) <= CommentRect.Right &&
+						InnerNode->NodePosY >= CommentRect.Top &&
+						(InnerNode->NodePosY + InnerH) <= CommentRect.Bottom)
+					{
+						Snapshot.EnclosedNodes.Add(InnerNode);
+					}
+				}
+			}
 
-            for (UEdGraphPin* Pin : Current->Pins)
-            {
-                for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
-                {
-                    if (UEdGraphNode* Neighbor = LinkedPin ? LinkedPin->GetOwningNode() : nullptr)
-                    {
-                        if (ShouldCleanLayoutNode(Neighbor) && !ProcessedNodes.Contains(Neighbor))
-                        {
-                            Stack.Push(Neighbor);
-                        }
-                    }
-                }
-            }
-        }
-        Islands.Add(Island);
-    }
+			if (Snapshot.EnclosedNodes.Num() > 0)
+			{
+				CommentSnapshots.Add(Snapshot);
+			}
+		}
+	}
 
-    const float HorizontalSpacing = Settings ? Settings->HorizontalSpacing : 300.0f;
-    const float VerticalSpacing = Settings ? Settings->VerticalSpacing : 120.0f;
+	// 1. Identify Connected Components (Islands) traversing through knots
+	struct FIslandData
+	{
+		TArray<UEdGraphNode*> Nodes;
+		TSet<UK2Node_Knot*> Knots;
+		int32 OriginalMinX = 0;
+		int32 OriginalMinY = 0;
+	};
 
-    float CurrentIslandY = 0.0f;
+	TArray<FIslandData> Islands;
+	TSet<UEdGraphNode*> ProcessedNodes;
 
-    bool bSkipGA = Analysis.TotalNodes > 500;
+	for (UEdGraphNode* Node : Graph->Nodes)
+	{
+		if (!ShouldCleanLayoutNode(Node) || ProcessedNodes.Contains(Node)) continue;
 
-    // 3. Process each Island
-    for (const TArray<UEdGraphNode*>& Island : Islands)
-    {
-        if (Island.Num() == 0) continue;
+		FIslandData Island;
+		TArray<UEdGraphNode*> Stack;
+		Stack.Push(Node);
 
-        // Find "Root" nodes for this island (inputs or nodes with no incoming execution wires)
-        TArray<UEdGraphNode*> Roots;
-        for (UEdGraphNode* Node : Island)
-        {
-            bool bHasIncomingExec = false;
-            for (UEdGraphPin* Pin : Node->Pins)
-            {
-                if (Pin->Direction == EGPD_Input && Pin->PinType.PinCategory == TEXT("exec") && Pin->LinkedTo.Num() > 0)
-                {
-                    bHasIncomingExec = true;
-                    break;
-                }
-            }
-            if (!bHasIncomingExec) Roots.Add(Node);
-        }
-        
-        // If no clear roots (e.g. data loop or pure isolated nodes), pick the leftmost one
-        if (Roots.Num() == 0) Roots.Add(Island[0]);
+		int32 MinX = Node->NodePosX;
+		int32 MinY = Node->NodePosY;
 
-        // Rank Assignment. Each node is ranked once so cyclic graphs converge.
-        TMap<UEdGraphNode*, int32> NodeRanks;
-        TArray<UEdGraphNode*> Queue;
-        for (UEdGraphNode* Root : Roots)
-        {
-            if (ShouldCleanLayoutNode(Root) && !NodeRanks.Contains(Root))
-            {
-                Queue.Add(Root);
-                NodeRanks.Add(Root, 0);
-            }
-        }
+		while (Stack.Num() > 0)
+		{
+			UEdGraphNode* Current = Stack.Pop();
+			if (!ShouldCleanLayoutNode(Current) || ProcessedNodes.Contains(Current)) continue;
 
-        while (Queue.Num() > 0)
-        {
-            UEdGraphNode* Current = Queue[0];
-            Queue.RemoveAt(0);
-            int32 Rank = NodeRanks[Current];
+			Island.Nodes.Add(Current);
+			ProcessedNodes.Add(Current);
 
-            for (UEdGraphPin* Pin : Current->Pins)
-            {
-                if (Pin->Direction == EGPD_Output)
-                {
-                    for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
-                    {
-                        if (UEdGraphNode* Neighbor = LinkedPin ? LinkedPin->GetOwningNode() : nullptr)
-                        {
-                            if (ShouldCleanLayoutNode(Neighbor) && !NodeRanks.Contains(Neighbor))
-                            {
-                                NodeRanks.Add(Neighbor, Rank + 1);
-                                Queue.Add(Neighbor);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+			MinX = FMath::Min(MinX, Current->NodePosX);
+			MinY = FMath::Min(MinY, Current->NodePosY);
 
-        // Layout within Island
-        TMap<int32, TArray<UEdGraphNode*>> RankGroups;
-        for (UEdGraphNode* Node : Island)
-        {
-            int32 Rank = NodeRanks.Contains(Node) ? NodeRanks[Node] : 0;
-            RankGroups.FindOrAdd(Rank).Add(Node);
-        }
+			for (UEdGraphPin* Pin : Current->Pins)
+			{
+				if (!Pin) continue;
+				TArray<UEdGraphNode*> Neighbors;
+				TSet<UEdGraphPin*> VisitedPins;
+				CollectNeighborsThroughKnots(Pin, Neighbors, Island.Knots, VisitedPins);
 
-        // --- UPGRADE: Genetic Algorithm for Crossing Minimization ---
-        if (!bSkipGA && Island.Num() > 1)
-        {
-            EvolutionaryCrossingMinimizer(RankGroups, Graph);
-        }
+				for (UEdGraphNode* Neighbor : Neighbors)
+				{
+					if (ShouldCleanLayoutNode(Neighbor) && !ProcessedNodes.Contains(Neighbor))
+					{
+						Stack.Push(Neighbor);
+					}
+				}
+			}
+		}
 
-        float IslandMaxHeight = 0.0f;
-        
-        TArray<int32> Ranks;
-        RankGroups.GetKeys(Ranks);
-        Ranks.Sort();
+		Island.OriginalMinX = MinX;
+		Island.OriginalMinY = MinY;
+		Islands.Add(Island);
+	}
 
-        for (int32 r = 0; r < Ranks.Num(); ++r)
-        {
-            int32 Rank = Ranks[r];
-            TArray<UEdGraphNode*>& NodesInRank = RankGroups[Rank];
+	const float HorizontalSpacing = Settings ? Settings->HorizontalSpacing : 300.0f;
+	const float VerticalSpacing = Settings ? Settings->VerticalSpacing : 120.0f;
+	const int32 GridSnapSize = Settings ? Settings->GridSnapSize : 16;
+	const bool bSkipGA = Analysis.TotalNodes > 500;
 
-            float CurrentY = CurrentIslandY;
-            for (int32 i = 0; i < NodesInRank.Num(); ++i)
-            {
-                UEdGraphNode* Node = NodesInRank[i];
-                float TargetY = CurrentY;
-                
-                // Feature: Strict Node Alignment
-                // If it has an execution input, strictly align to it horizontally
-                bool bAlignedToExec = false;
-                for (UEdGraphPin* Pin : Node->Pins)
-                {
-                    if (Pin->Direction == EGPD_Input && Pin->PinType.PinCategory == TEXT("exec") && Pin->LinkedTo.Num() > 0)
-                    {
-                            if (UEdGraphNode* ParentNode = Pin->LinkedTo[0] ? Pin->LinkedTo[0]->GetOwningNode() : nullptr)
-                            {
-                                if (ShouldCleanLayoutNode(ParentNode))
-                                {
-                                    TargetY = ParentNode->NodePosY; // Strictly match parent's Y
-                                    bAlignedToExec = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
+	// Track occupied island bounding boxes to prevent overlapping multiple islands
+	TArray<FBox2D> PlacedIslandBounds;
 
-                if (!bAlignedToExec)
-                {
-                    // Align to data inputs if no exec
-                    float SumY = 0.0f;
-                    int32 Count = 0;
-                    for (UEdGraphPin* Pin : Node->Pins)
-                    {
-                        if (Pin->Direction == EGPD_Input)
-                        {
-                            for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
-                            {
-                                if (UEdGraphNode* ParentNode = LinkedPin ? LinkedPin->GetOwningNode() : nullptr)
-                                {
-                                    if (ShouldCleanLayoutNode(ParentNode))
-                                    {
-                                        SumY += ParentNode->NodePosY;
-                                        Count++;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    if (Count > 0)
-                    {
-                        TargetY = SumY / Count;
-                    }
-                }
+	// 2. Process each Island
+	for (FIslandData& Island : Islands)
+	{
+		if (Island.Nodes.Num() == 0) continue;
 
-                // Snap TargetY to a 16 unit grid to ensure neat rows (Unreal's default grid is 16)
-                TargetY = FMath::RoundToFloat(TargetY / 16.0f) * 16.0f;
+		TSet<UEdGraphNode*> IslandNodeSet(Island.Nodes);
 
-                // Enforce minimum vertical spacing to avoid overlaps
-                if (TargetY < CurrentY)
-                {
-                    TargetY = CurrentY;
-                }
+		// Separate Execution and Pure nodes
+		TArray<UEdGraphNode*> ExecRoots;
+		TArray<UEdGraphNode*> PureRoots;
 
-                Node->Modify();
-                Node->NodePosX = Rank * HorizontalSpacing;
-                Node->NodePosY = TargetY;
-                
-                CurrentY = TargetY + VerticalSpacing;
-                IslandMaxHeight = FMath::Max(IslandMaxHeight, TargetY - CurrentIslandY + VerticalSpacing);
-            }
-        }
+		for (UEdGraphNode* Node : Island.Nodes)
+		{
+			if (IsExecNode(Node))
+			{
+				bool bHasIncomingExec = false;
+				for (UEdGraphPin* Pin : Node->Pins)
+				{
+					if (IsExecPin(Pin) && Pin->Direction == EGPD_Input)
+					{
+						TArray<UEdGraphNode*> UpstreamExecNodes;
+						TSet<UK2Node_Knot*> UnusedKnots;
+						TSet<UEdGraphPin*> VisitedPins;
+						CollectNeighborsThroughKnots(Pin, UpstreamExecNodes, UnusedKnots, VisitedPins);
 
-        CurrentIslandY += IslandMaxHeight + (VerticalSpacing * 2.0f);
-    }
+						for (UEdGraphNode* Upstream : UpstreamExecNodes)
+						{
+							if (IslandNodeSet.Contains(Upstream))
+							{
+								bHasIncomingExec = true;
+								break;
+							}
+						}
+						if (bHasIncomingExec) break;
+					}
+				}
 
-    Graph->NotifyGraphChanged();
-    
-    if (bSkipGA)
-    {
-        UE_LOG(LogBlueLineCore, Warning, TEXT("BlueLine: Cleaned %d nodes (Bypassed Genetic Algorithm due to size)."), Analysis.TotalNodes);
-    }
-    else
-    {
-        UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Cleaned %d nodes in %d islands using Evolutionary Optimization."), Analysis.TotalNodes, Islands.Num());
-    }
+				if (!bHasIncomingExec)
+				{
+					ExecRoots.Add(Node);
+				}
+			}
+			else
+			{
+				// Pure node: check if it has any incoming data connections within the island
+				bool bHasIncomingData = false;
+				for (UEdGraphPin* Pin : Node->Pins)
+				{
+					if (Pin && Pin->Direction == EGPD_Input)
+					{
+						TArray<UEdGraphNode*> UpstreamDataNodes;
+						TSet<UK2Node_Knot*> UnusedKnots;
+						TSet<UEdGraphPin*> VisitedPins;
+						CollectNeighborsThroughKnots(Pin, UpstreamDataNodes, UnusedKnots, VisitedPins);
+
+						for (UEdGraphNode* Upstream : UpstreamDataNodes)
+						{
+							if (IslandNodeSet.Contains(Upstream))
+							{
+								bHasIncomingData = true;
+								break;
+							}
+						}
+						if (bHasIncomingData) break;
+					}
+				}
+
+				if (!bHasIncomingData)
+				{
+					PureRoots.Add(Node);
+				}
+			}
+		}
+
+		// Fallback root selection
+		if (ExecRoots.Num() == 0 && PureRoots.Num() == 0)
+		{
+			ExecRoots.Add(Island.Nodes[0]);
+		}
+
+		// --- TWO-PHASE TOPOLOGICAL RANKING ---
+		TMap<UEdGraphNode*, int32> NodeRanks;
+
+		// Phase 1: Rank the Execution Spine
+		TArray<UEdGraphNode*> ExecQueue;
+		for (UEdGraphNode* ExecRoot : ExecRoots)
+		{
+			NodeRanks.Add(ExecRoot, 0);
+			ExecQueue.Add(ExecRoot);
+		}
+
+		TSet<UEdGraphNode*> VisitedExec;
+		while (ExecQueue.Num() > 0)
+		{
+			UEdGraphNode* Current = ExecQueue[0];
+			ExecQueue.RemoveAt(0);
+			VisitedExec.Add(Current);
+			const int32 CurrentRank = NodeRanks[Current];
+
+			for (UEdGraphPin* Pin : Current->Pins)
+			{
+				if (IsExecPin(Pin) && Pin->Direction == EGPD_Output)
+				{
+					TArray<UEdGraphNode*> DownstreamNodes;
+					TSet<UK2Node_Knot*> UnusedKnots;
+					TSet<UEdGraphPin*> VisitedPins;
+					CollectNeighborsThroughKnots(Pin, DownstreamNodes, UnusedKnots, VisitedPins);
+
+					for (UEdGraphNode* Downstream : DownstreamNodes)
+					{
+						if (!IslandNodeSet.Contains(Downstream)) continue;
+
+						int32& DownstreamRank = NodeRanks.FindOrAdd(Downstream, CurrentRank + 1);
+						DownstreamRank = FMath::Max(DownstreamRank, CurrentRank + 1);
+
+						if (!VisitedExec.Contains(Downstream))
+						{
+							ExecQueue.AddUnique(Downstream);
+						}
+					}
+				}
+			}
+		}
+
+		// Phase 2: Rank Pure Data Nodes (Reverse Dependency Flow)
+		// Pure nodes sit immediately to the left of the node that consumes their outputs.
+		TArray<UEdGraphNode*> PureNodesToRank;
+		for (UEdGraphNode* Node : Island.Nodes)
+		{
+			if (!IsExecNode(Node) || !NodeRanks.Contains(Node))
+			{
+				PureNodesToRank.Add(Node);
+			}
+		}
+
+		int32 MaxPasses = PureNodesToRank.Num() + 5;
+		bool bChanged = true;
+		while (bChanged && MaxPasses-- > 0)
+		{
+			bChanged = false;
+			for (UEdGraphNode* PureNode : PureNodesToRank)
+			{
+				int32 MinConsumerRank = TNumericLimits<int32>::Max();
+
+				for (UEdGraphPin* Pin : PureNode->Pins)
+				{
+					if (Pin && Pin->Direction == EGPD_Output)
+					{
+						TArray<UEdGraphNode*> Consumers;
+						TSet<UK2Node_Knot*> UnusedKnots;
+						TSet<UEdGraphPin*> VisitedPins;
+						CollectNeighborsThroughKnots(Pin, Consumers, UnusedKnots, VisitedPins);
+
+						for (UEdGraphNode* Consumer : Consumers)
+						{
+							if (const int32* CRank = NodeRanks.Find(Consumer))
+							{
+								MinConsumerRank = FMath::Min(MinConsumerRank, *CRank);
+							}
+						}
+					}
+				}
+
+				if (MinConsumerRank != TNumericLimits<int32>::Max())
+				{
+					const int32 DesiredRank = MinConsumerRank - 1;
+					int32* ExistingRank = NodeRanks.Find(PureNode);
+					if (!ExistingRank || *ExistingRank != DesiredRank)
+					{
+						NodeRanks.Add(PureNode, DesiredRank);
+						bChanged = true;
+					}
+				}
+				else if (!NodeRanks.Contains(PureNode))
+				{
+					int32 MaxProducerRank = -1;
+					for (UEdGraphPin* Pin : PureNode->Pins)
+					{
+						if (Pin && Pin->Direction == EGPD_Input)
+						{
+							TArray<UEdGraphNode*> Producers;
+							TSet<UK2Node_Knot*> UnusedKnots;
+							TSet<UEdGraphPin*> VisitedPins;
+							CollectNeighborsThroughKnots(Pin, Producers, UnusedKnots, VisitedPins);
+
+							for (UEdGraphNode* Producer : Producers)
+							{
+								if (const int32* PRank = NodeRanks.Find(Producer))
+								{
+									MaxProducerRank = FMath::Max(MaxProducerRank, *PRank);
+								}
+							}
+						}
+					}
+
+					if (MaxProducerRank != -1)
+					{
+						NodeRanks.Add(PureNode, MaxProducerRank + 1);
+						bChanged = true;
+					}
+					else if (PureRoots.Contains(PureNode))
+					{
+						NodeRanks.Add(PureNode, 0);
+						bChanged = true;
+					}
+				}
+			}
+		}
+
+		// Ensure all nodes in the island have a rank
+		for (UEdGraphNode* Node : Island.Nodes)
+		{
+			if (!NodeRanks.Contains(Node))
+			{
+				NodeRanks.Add(Node, 0);
+			}
+		}
+
+		// Normalize ranks so minimum rank is 0
+		int32 MinRankValue = 0;
+		for (const auto& Pair : NodeRanks)
+		{
+			MinRankValue = FMath::Min(MinRankValue, Pair.Value);
+		}
+
+		if (MinRankValue < 0)
+		{
+			const int32 Offset = -MinRankValue;
+			for (auto& Pair : NodeRanks)
+			{
+				Pair.Value += Offset;
+			}
+		}
+
+		// Group nodes by Rank
+		TMap<int32, TArray<UEdGraphNode*>> RankGroups;
+		for (UEdGraphNode* Node : Island.Nodes)
+		{
+			RankGroups.FindOrAdd(NodeRanks[Node]).Add(Node);
+		}
+
+		// Reorder within ranks using Evolutionary Minimizer (preserving execution hierarchy)
+		if (!bSkipGA && Island.Nodes.Num() > 2)
+		{
+			EvolutionaryCrossingMinimizer(RankGroups, Graph);
+		}
+
+		// Calculate Island Target Origin (Preserve relative canvas space, avoid smashing to 0,0)
+		int32 TargetOriginX = Island.OriginalMinX;
+		int32 TargetOriginY = Island.OriginalMinY;
+
+		TArray<int32> SortedRanks;
+		RankGroups.GetKeys(SortedRanks);
+		SortedRanks.Sort();
+
+		// Calculate relative positions within the island
+		TMap<UEdGraphNode*, FIntPoint> NodeLocalPositions;
+		int32 IslandHeight = 0;
+
+		for (int32 Rank : SortedRanks)
+		{
+			TArray<UEdGraphNode*>& NodesInRank = RankGroups[Rank];
+			const int32 ColumnX = FMath::RoundToInt(Rank * HorizontalSpacing);
+			int32 CurrentY = 0;
+
+			for (int32 i = 0; i < NodesInRank.Num(); ++i)
+			{
+				UEdGraphNode* Node = NodesInRank[i];
+				int32 TargetY = CurrentY;
+
+				// Execution pin horizontal alignment
+				bool bAligned = false;
+				for (UEdGraphPin* Pin : Node->Pins)
+				{
+					if (Pin && IsExecPin(Pin) && Pin->Direction == EGPD_Input && Pin->LinkedTo.Num() > 0)
+					{
+						TArray<UEdGraphNode*> UpstreamNodes;
+						TSet<UK2Node_Knot*> UnusedKnots;
+						TSet<UEdGraphPin*> VisitedPins;
+						CollectNeighborsThroughKnots(Pin, UpstreamNodes, UnusedKnots, VisitedPins);
+
+						for (UEdGraphNode* UpstreamNode : UpstreamNodes)
+						{
+							if (const FIntPoint* UpstreamPos = NodeLocalPositions.Find(UpstreamNode))
+							{
+								const FVector2D UpstreamPinPos = FBlueLineManhattanRouter::GetPinPos(Pin->LinkedTo[0]);
+								const FVector2D MyPinPos = FBlueLineManhattanRouter::GetPinPos(Pin);
+								const int32 PinOffsetY = FMath::RoundToInt(MyPinPos.Y - (float)Node->NodePosY);
+								const int32 UpstreamPinOffsetY = FMath::RoundToInt(UpstreamPinPos.Y - (float)UpstreamNode->NodePosY);
+
+								TargetY = UpstreamPos->Y + UpstreamPinOffsetY - PinOffsetY;
+								bAligned = true;
+								break;
+							}
+						}
+						if (bAligned) break;
+					}
+				}
+
+				// Data pin alignment if not exec-aligned
+				if (!bAligned)
+				{
+					for (UEdGraphPin* Pin : Node->Pins)
+					{
+						if (Pin && Pin->Direction == EGPD_Output && Pin->LinkedTo.Num() > 0)
+						{
+							TArray<UEdGraphNode*> ConsumerNodes;
+							TSet<UK2Node_Knot*> UnusedKnots;
+							TSet<UEdGraphPin*> VisitedPins;
+							CollectNeighborsThroughKnots(Pin, ConsumerNodes, UnusedKnots, VisitedPins);
+
+							for (UEdGraphNode* Consumer : ConsumerNodes)
+							{
+								if (const FIntPoint* ConsumerPos = NodeLocalPositions.Find(Consumer))
+								{
+									const FVector2D ConsumerPinPos = FBlueLineManhattanRouter::GetPinPos(Pin->LinkedTo[0]);
+									const FVector2D MyPinPos = FBlueLineManhattanRouter::GetPinPos(Pin);
+									const int32 PinOffsetY = FMath::RoundToInt(MyPinPos.Y - (float)Node->NodePosY);
+									const int32 ConsumerPinOffsetY = FMath::RoundToInt(ConsumerPinPos.Y - (float)Consumer->NodePosY);
+
+									TargetY = ConsumerPos->Y + ConsumerPinOffsetY - PinOffsetY;
+									bAligned = true;
+									break;
+								}
+							}
+							if (bAligned) break;
+						}
+					}
+				}
+
+				TargetY = FMath::GridSnap(TargetY, GridSnapSize);
+				if (TargetY < CurrentY)
+				{
+					TargetY = CurrentY;
+				}
+
+				NodeLocalPositions.Add(Node, FIntPoint(ColumnX, TargetY));
+				CurrentY = TargetY + GetNodeEffectiveHeight(Node) + FMath::RoundToInt(VerticalSpacing * 0.4f);
+				CurrentY = FMath::GridSnap(CurrentY, GridSnapSize);
+				IslandHeight = FMath::Max(IslandHeight, CurrentY);
+			}
+		}
+
+		// Ensure island does not collide with previously placed islands
+		const int32 IslandWidth = FMath::RoundToInt((SortedRanks.Num() > 0 ? SortedRanks.Last() : 0) * HorizontalSpacing) + 300;
+		FBox2D IslandBox(
+			FVector2D((float)TargetOriginX, (float)TargetOriginY),
+			FVector2D((float)(TargetOriginX + IslandWidth), (float)(TargetOriginY + IslandHeight))
+		);
+
+		for (const FBox2D& PlacedBox : PlacedIslandBounds)
+		{
+			if (IslandBox.Intersect(PlacedBox))
+			{
+				TargetOriginY = FMath::RoundToInt(PlacedBox.Max.Y + VerticalSpacing);
+				TargetOriginY = FMath::GridSnap(TargetOriginY, GridSnapSize);
+				IslandBox.Min.Y = (float)TargetOriginY;
+				IslandBox.Max.Y = (float)(TargetOriginY + IslandHeight);
+			}
+		}
+		PlacedIslandBounds.Add(IslandBox);
+
+		// Apply world positions to nodes
+		for (UEdGraphNode* Node : Island.Nodes)
+		{
+			if (const FIntPoint* LocalPos = NodeLocalPositions.Find(Node))
+			{
+				Node->Modify();
+				Node->NodePosX = FMath::GridSnap(TargetOriginX + LocalPos->X, GridSnapSize);
+				Node->NodePosY = FMath::GridSnap(TargetOriginY + LocalPos->Y, GridSnapSize);
+			}
+		}
+
+		// Neatly position intermediate reroute knots along their connecting wires
+		for (UK2Node_Knot* Knot : Island.Knots)
+		{
+			if (!Knot) continue;
+
+			UEdGraphPin* InPin = Knot->GetInputPin();
+			UEdGraphPin* OutPin = Knot->GetOutputPin();
+
+			if (InPin && InPin->LinkedTo.Num() > 0 && OutPin && OutPin->LinkedTo.Num() > 0)
+			{
+				UEdGraphNode* SourceNode = InPin->LinkedTo[0]->GetOwningNode();
+				UEdGraphNode* TargetNode = OutPin->LinkedTo[0]->GetOwningNode();
+
+				// Only center solitary reroute knots between two non-knot nodes.
+				// For multi-knot chains (such as Manhattan routed corners), leave positions intact to prevent collapsing corners.
+				if (SourceNode && TargetNode && !SourceNode->IsA<UK2Node_Knot>() && !TargetNode->IsA<UK2Node_Knot>())
+				{
+					const FVector2D SourcePinPos = FBlueLineManhattanRouter::GetPinPos(InPin->LinkedTo[0]);
+					const FVector2D TargetPinPos = FBlueLineManhattanRouter::GetPinPos(OutPin->LinkedTo[0]);
+
+					Knot->Modify();
+					Knot->NodePosX = FMath::GridSnap(FMath::RoundToInt32((SourcePinPos.X + TargetPinPos.X) * 0.5f) - 16, GridSnapSize);
+					Knot->NodePosY = FMath::GridSnap(FMath::RoundToInt32((SourcePinPos.Y + TargetPinPos.Y) * 0.5f) - 16, GridSnapSize);
+				}
+			}
+		}
+	}
+
+	// Update comment boxes that enclosed cleaned nodes
+	const float CommentPadding = Settings ? Settings->CommentBoxPadding : 40.0f;
+	for (const FCommentSnapshot& Snapshot : CommentSnapshots)
+	{
+		if (!Snapshot.CommentNode || Snapshot.EnclosedNodes.Num() == 0) continue;
+
+		int32 MinX = TNumericLimits<int32>::Max();
+		int32 MinY = TNumericLimits<int32>::Max();
+		int32 MaxX = TNumericLimits<int32>::Min();
+		int32 MaxY = TNumericLimits<int32>::Min();
+
+		for (UEdGraphNode* Node : Snapshot.EnclosedNodes)
+		{
+			if (!Node) continue;
+			MinX = FMath::Min(MinX, Node->NodePosX);
+			MinY = FMath::Min(MinY, Node->NodePosY);
+			MaxX = FMath::Max(MaxX, Node->NodePosX + GetNodeEffectiveWidth(Node));
+			MaxY = FMath::Max(MaxY, Node->NodePosY + GetNodeEffectiveHeight(Node));
+		}
+
+		if (MinX < MaxX && MinY < MaxY)
+		{
+			Snapshot.CommentNode->Modify();
+			Snapshot.CommentNode->NodePosX = FMath::GridSnap(FMath::RoundToInt32((float)MinX - CommentPadding), GridSnapSize);
+			Snapshot.CommentNode->NodePosY = FMath::GridSnap(FMath::RoundToInt32((float)MinY - CommentPadding - 35.0f), GridSnapSize);
+			Snapshot.CommentNode->NodeWidth = FMath::GridSnap(FMath::RoundToInt32((float)(MaxX - MinX) + CommentPadding * 2.0f), GridSnapSize);
+			Snapshot.CommentNode->NodeHeight = FMath::GridSnap(FMath::RoundToInt32((float)(MaxY - MinY) + CommentPadding * 2.0f + 35.0f), GridSnapSize);
+		}
+	}
+
+	Graph->NotifyGraphChanged();
+
+	if (bSkipGA)
+	{
+		UE_LOG(LogBlueLineCore, Warning, TEXT("BlueLine: Cleaned %d nodes (Bypassed Genetic Algorithm due to size)."), Analysis.TotalNodes);
+	}
+	else
+	{
+		UE_LOG(LogBlueLineCore, Log, TEXT("BlueLine: Cleaned %d nodes in %d islands with optimized topological flow."), Analysis.TotalNodes, Islands.Num());
+	}
 }
 
 void FBlueLineGraphCleaner::EvolutionaryCrossingMinimizer(TMap<int32, TArray<UEdGraphNode*>>& RankGroups, UEdGraph* Graph)
 {
-    // Genetic Algorithm Parameters
-    const int32 PopulationSize = 30;
-    const int32 MaxGenerations = 40;
-    const float MutationRate = 0.15f;
+	const int32 PopulationSize = 24;
+	const int32 MaxGenerations = 30;
+	const float MutationRate = 0.2f;
 
-    // SAFETY: Seed random number generator for deterministic results based on graph state
-    // This ensures the same graph produces the same layout, while different graphs get different seeds
-    uint32 Seed = 0;
-    if (Graph && Graph->Nodes.Num() > 0)
-    {
-        // Create a seed based on graph characteristics
-        for (UEdGraphNode* Node : Graph->Nodes)
-        {
-            if (Node)
-            {
-                Seed = Seed * 31 + (uint32)Node->NodePosX;
-                Seed = Seed * 31 + (uint32)Node->NodePosY;
-            }
-        }
-        // Mix in node count for additional uniqueness
-        Seed ^= (uint32)Graph->Nodes.Num() * 0x9e3779b9;
-    }
-    
-    // If no valid graph data, use time-based seed
-    if (Seed == 0)
-    {
-        Seed = (uint32)FDateTime::Now().GetTicks();
-    }
-    
-    FMath::RandInit(Seed);
+	uint32 Seed = 0;
+	if (Graph && Graph->Nodes.Num() > 0)
+	{
+		for (UEdGraphNode* Node : Graph->Nodes)
+		{
+			if (Node)
+			{
+				Seed = Seed * 31 + (uint32)Node->NodePosX;
+				Seed = Seed * 31 + (uint32)Node->NodePosY;
+			}
+		}
+		Seed ^= (uint32)Graph->Nodes.Num() * 0x9e3779b9;
+	}
 
-    struct FIndividual
-    {
-        TMap<int32, TArray<UEdGraphNode*>> Chromosome;
-        int32 Fitness = 0;
+	if (Seed == 0)
+	{
+		Seed = (uint32)FDateTime::Now().GetTicks();
+	}
 
-        void CalculateFitness()
-        {
-            Fitness = 0;
-            TArray<int32> Ranks;
-            Chromosome.GetKeys(Ranks);
-            Ranks.Sort();
+	FMath::RandInit(Seed);
 
-            // Check crossings between adjacent ranks
-            for (int32 i = 0; i < Ranks.Num() - 1; ++i)
-            {
-                const TArray<UEdGraphNode*>& RankA = Chromosome[Ranks[i]];
-                const TArray<UEdGraphNode*>& RankB = Chromosome[Ranks[i+1]];
+	struct FIndividual
+	{
+		TMap<int32, TArray<UEdGraphNode*>> Chromosome;
+		int32 Fitness = 0;
 
-                TMap<UEdGraphNode*, int32> PosA;
-                for (int32 j = 0; j < RankA.Num(); ++j) PosA.Add(RankA[j], j);
-                
-                TMap<UEdGraphNode*, int32> PosB;
-                for (int32 j = 0; j < RankB.Num(); ++j) PosB.Add(RankB[j], j);
+		void CalculateFitness()
+		{
+			Fitness = 0;
+			TArray<int32> Ranks;
+			Chromosome.GetKeys(Ranks);
+			Ranks.Sort();
 
-                // Find all edges between RankA and RankB
-                struct FEdge { int32 u; int32 v; };
-                TArray<FEdge> Edges;
+			// Precompute vertical rank indices and node rank map
+			TMap<UEdGraphNode*, int32> NodeIndexMap;
+			TMap<UEdGraphNode*, int32> NodeRankMap;
+			for (int32 r : Ranks)
+			{
+				const TArray<UEdGraphNode*>& Nodes = Chromosome[r];
+				for (int32 i = 0; i < Nodes.Num(); ++i)
+				{
+					NodeIndexMap.Add(Nodes[i], i);
+					NodeRankMap.Add(Nodes[i], r);
+				}
+			}
 
-                for (UEdGraphNode* NodeA : RankA)
-                {
-                    for (UEdGraphPin* Pin : NodeA->Pins)
-                    {
-                        if (Pin->Direction == EGPD_Output)
-                        {
-                            for (UEdGraphPin* LP : Pin->LinkedTo)
-                            {
-                                if (UEdGraphNode* NodeB = LP ? LP->GetOwningNode() : nullptr)
-                                {
-                                    if (PosB.Contains(NodeB))
-                                    {
-                                        Edges.Add({PosA[NodeA], PosB[NodeB]});
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+			// Evaluate wire crossings across all ranks
+			struct FEdge
+			{
+				int32 RankA;
+				int32 IndexA;
+				int32 RankB;
+				int32 IndexB;
+				bool bIsExec;
+			};
+			TArray<FEdge> Edges;
 
-                // Count crossings
-                for (int32 j = 0; j < Edges.Num(); ++j)
-                {
-                    for (int32 k = j + 1; k < Edges.Num(); ++k)
-                    {
-                        const FEdge& E1 = Edges[j];
-                        const FEdge& E2 = Edges[k];
+			for (int32 r : Ranks)
+			{
+				const TArray<UEdGraphNode*>& Nodes = Chromosome[r];
+				for (UEdGraphNode* NodeA : Nodes)
+				{
+					if (!NodeA) continue;
+					const int32 IndexA = NodeIndexMap[NodeA];
 
-                        if ((E1.u < E2.u && E1.v > E2.v) || (E1.u > E2.u && E1.v < E2.v))
-                        {
-                            Fitness++;
-                        }
-                    }
-                }
-            }
-        }
-    };
+					for (UEdGraphPin* Pin : NodeA->Pins)
+					{
+						if (!Pin || Pin->Direction != EGPD_Output) continue;
 
-    TArray<FIndividual> Population;
+						const bool bIsExec = IsExecPin(Pin);
+						for (UEdGraphPin* LP : Pin->LinkedTo)
+						{
+							if (!LP) continue;
+							if (UEdGraphNode* NodeB = LP->GetOwningNode())
+							{
+								if (const int32* IndexB = NodeIndexMap.Find(NodeB))
+								{
+									if (const int32* RankB = NodeRankMap.Find(NodeB))
+									{
+										Edges.Add({ r, IndexA, *RankB, *IndexB, bIsExec });
+									}
+								}
+							}
+						}
+					}
+				}
+			}
 
-    // 1. Initial Population
-    // First individual is the Barycenter result (good starting point)
-    FIndividual Initial;
-    Initial.Chromosome = RankGroups;
-    for (auto& KVP : Initial.Chromosome)
-    {
-        KVP.Value.Sort([&](const UEdGraphNode& A, const UEdGraphNode& B) {
-            auto GetAvgParentY = [&](const UEdGraphNode& Node) {
-                float SumY = 0.0f; int32 Count = 0;
-                for (UEdGraphPin* Pin : Node.Pins) {
-                    // SAFETY: Check Pin validity before accessing
-                    if (Pin && Pin->Direction == EGPD_Input) {
-                        for (UEdGraphPin* LP : Pin->LinkedTo) {
-                            // SAFETY: Check linked pin and owning node validity
-                            if (LP && LP->GetOwningNode()) {
-                                SumY += LP->GetOwningNode()->NodePosY; 
-                                Count++;
-                            }
-                        }
-                    }
-                }
-                return Count > 0 ? SumY / Count : 0.0f;
-            };
-            return GetAvgParentY(A) < GetAvgParentY(B);
-        });
-    }
-    Initial.CalculateFitness();
-    Population.Add(Initial);
+			for (int32 j = 0; j < Edges.Num(); ++j)
+			{
+				for (int32 k = j + 1; k < Edges.Num(); ++k)
+				{
+					const FEdge& E1 = Edges[j];
+					const FEdge& E2 = Edges[k];
 
-    // Fill rest with random permutations
-    for (int32 i = 1; i < PopulationSize; ++i)
-    {
-        FIndividual Ind;
-        Ind.Chromosome = RankGroups;
-        for (auto& KVP : Ind.Chromosome)
-        {
-            // Fisher-Yates shuffle
-            for (int32 j = KVP.Value.Num() - 1; j > 0; --j)
-            {
-                int32 k = FMath::RandRange(0, j);
-                KVP.Value.Swap(j, k);
-            }
-        }
-        Ind.CalculateFitness();
-        Population.Add(Ind);
-    }
+					if (E1.RankA == E2.RankA && E1.RankB == E2.RankB)
+					{
+						if ((E1.IndexA < E2.IndexA && E1.IndexB > E2.IndexB) ||
+							(E1.IndexA > E2.IndexA && E1.IndexB < E2.IndexB))
+						{
+							Fitness += (E1.bIsExec || E2.bIsExec) ? 10 : 2;
+						}
+					}
+				}
+			}
+		}
+	};
 
-    // 2. Evolution Loop
-    for (int32 Gen = 0; Gen < MaxGenerations; ++Gen)
-    {
-        Population.Sort([](const FIndividual& A, const FIndividual& B) { return A.Fitness < B.Fitness; });
-        
-        // If we hit 0 crossings, we're done
-        if (Population[0].Fitness == 0) break;
+	TArray<FIndividual> Population;
 
-        TArray<FIndividual> NewPopulation;
-        // Elitism: Keep top 2
-        NewPopulation.Add(Population[0]);
-        NewPopulation.Add(Population[1]);
+	// Initial Individual: Sort by primary execution status and average parent position
+	FIndividual Initial;
+	Initial.Chromosome = RankGroups;
+	for (auto& KVP : Initial.Chromosome)
+	{
+		KVP.Value.Sort([](const UEdGraphNode& A, const UEdGraphNode& B) {
+			const bool bAIsExec = IsExecNode(&A);
+			const bool bBIsExec = IsExecNode(&B);
+			if (bAIsExec != bBIsExec)
+			{
+				return bAIsExec; // Keep execution backbone at the top
+			}
+			return A.NodePosY < B.NodePosY;
+		});
+	}
+	Initial.CalculateFitness();
+	Population.Add(Initial);
 
-        while (NewPopulation.Num() < PopulationSize)
-        {
-            // Selection (Tournament)
-            auto Select = [&]() -> const FIndividual& {
-                int32 i1 = FMath::RandRange(0, PopulationSize / 2);
-                int32 i2 = FMath::RandRange(0, PopulationSize / 2);
-                return (Population[i1].Fitness < Population[i2].Fitness) ? Population[i1] : Population[i2];
-            };
+	// Generate variants
+	for (int32 i = 1; i < PopulationSize; ++i)
+	{
+		FIndividual Ind = Initial;
+		for (auto& KVP : Ind.Chromosome)
+		{
+			// Only permute non-primary nodes to preserve the execution spine
+			if (KVP.Value.Num() > 2)
+			{
+				const int32 StartIdx = IsExecNode(KVP.Value[0]) ? 1 : 0;
+				for (int32 j = KVP.Value.Num() - 1; j > StartIdx; --j)
+				{
+					const int32 k = FMath::RandRange(StartIdx, j);
+					KVP.Value.Swap(j, k);
+				}
+			}
+		}
+		Ind.CalculateFitness();
+		Population.Add(Ind);
+	}
 
-            const FIndividual& Parent1 = Select();
-            const FIndividual& Parent2 = Select();
+	// Evolution Loop
+	for (int32 Gen = 0; Gen < MaxGenerations; ++Gen)
+	{
+		Population.Sort([](const FIndividual& A, const FIndividual& B) { return A.Fitness < B.Fitness; });
+		if (Population[0].Fitness == 0) break;
 
-            // Crossover (Uniform Rank Crossover)
-            FIndividual Child;
-            Child.Chromosome = RankGroups;
-            for (auto& KVP : RankGroups)
-            {
-                int32 Rank = KVP.Key;
-                // Randomly take rank ordering from Parent1 or Parent2
-                Child.Chromosome[Rank] = (FMath::RandBool()) ? Parent1.Chromosome[Rank] : Parent2.Chromosome[Rank];
-            }
+		TArray<FIndividual> NewPopulation;
+		NewPopulation.Add(Population[0]);
+		NewPopulation.Add(Population[1]);
 
-            // Mutation (Swap Mutation)
-            if (FMath::FRand() < MutationRate)
-            {
-                TArray<int32> RankKeys;
-                Child.Chromosome.GetKeys(RankKeys);
-                int32 RandRank = RankKeys[FMath::RandRange(0, RankKeys.Num() - 1)];
-                TArray<UEdGraphNode*>& Nodes = Child.Chromosome[RandRank];
-                if (Nodes.Num() > 1)
-                {
-                    Nodes.Swap(FMath::RandRange(0, Nodes.Num() - 1), FMath::RandRange(0, Nodes.Num() - 1));
-                }
-            }
+		while (NewPopulation.Num() < PopulationSize)
+		{
+			const int32 i1 = FMath::RandRange(0, PopulationSize / 2);
+			const int32 i2 = FMath::RandRange(0, PopulationSize / 2);
+			const FIndividual& Parent1 = (Population[i1].Fitness < Population[i2].Fitness) ? Population[i1] : Population[i2];
+			const FIndividual& Parent2 = Population[FMath::RandRange(0, PopulationSize / 2)];
 
-            Child.CalculateFitness();
-            NewPopulation.Add(Child);
-        }
-        Population = NewPopulation;
-    }
+			FIndividual Child = Parent1;
+			for (auto& KVP : Child.Chromosome)
+			{
+				if (FMath::RandBool())
+				{
+					if (const TArray<UEdGraphNode*>* P2Nodes = Parent2.Chromosome.Find(KVP.Key))
+					{
+						KVP.Value = *P2Nodes;
+					}
+				}
 
-    // Apply best result
-    Population.Sort([](const FIndividual& A, const FIndividual& B) { return A.Fitness < B.Fitness; });
-    RankGroups = Population[0].Chromosome;
+				if (FMath::FRand() < MutationRate && KVP.Value.Num() > 2)
+				{
+					const int32 StartIdx = IsExecNode(KVP.Value[0]) ? 1 : 0;
+					if (KVP.Value.Num() - 1 > StartIdx)
+					{
+						const int32 IdxA = FMath::RandRange(StartIdx, KVP.Value.Num() - 1);
+						const int32 IdxB = FMath::RandRange(StartIdx, KVP.Value.Num() - 1);
+						KVP.Value.Swap(IdxA, IdxB);
+					}
+				}
+			}
+
+			Child.CalculateFitness();
+			NewPopulation.Add(Child);
+		}
+		Population = NewPopulation;
+	}
+
+	Population.Sort([](const FIndividual& A, const FIndividual& B) { return A.Fitness < B.Fitness; });
+	RankGroups = Population[0].Chromosome;
 }
 
 UEdGraph* FBlueLineGraphCleaner::GetActiveGraph()

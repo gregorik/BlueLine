@@ -5,15 +5,12 @@
 #include "BlueprintNodeSpawner.h"
 #include "EdGraphSchema_K2.h"
 #include "KismetCompiler.h"
+#include "Settings/UBlueLineEditorSettings.h"
 
 #define LOCTEXT_NAMESPACE "K2Node_AWSTag"
 
 void UK2Node_AWSTag::AllocateDefaultPins()
 {
-	// FIX: Clear existing pins before creating new ones to prevent duplication
-	// when node is reconstructed (e.g., during compilation or undo/redo)
-	Pins.Reset();
-	
 	CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_String, TEXT("ResourceARN"));
 	CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_String, TEXT("ResourceName"));
 	CreatePin(EGPD_Input, UEdGraphSchema_K2::PC_String, TEXT("BillingGroup"));
@@ -29,6 +26,12 @@ FText UK2Node_AWSTag::GetMenuCategory() const { return LOCTEXT("Category", "Blue
 
 void UK2Node_AWSTag::GetMenuActions(FBlueprintActionDatabaseRegistrar& ActionRegistrar) const
 {
+	const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
+	if (!Settings || !Settings->bExposeDemoNodes)
+	{
+		return;
+	}
+
 	UClass* ActionKey = GetClass();
 	if (ActionRegistrar.IsOpenForRegistration(ActionKey))
 	{
@@ -40,6 +43,7 @@ void UK2Node_AWSTag::GetMenuActions(FBlueprintActionDatabaseRegistrar& ActionReg
 void UK2Node_AWSTag::ExpandNode(class FKismetCompilerContext& CompilerContext, UEdGraph* SourceGraph)
 {
 	Super::ExpandNode(CompilerContext, SourceGraph);
+	CompilerContext.MessageLog.Warning(*LOCTEXT("AWSTagDemoWarning", "@@ is a BlueLine demo node and does not compile to runtime behavior.").ToString(), this);
 	BreakAllNodeLinks();
 }
 #undef LOCTEXT_NAMESPACE

@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #pragma once
 
@@ -7,6 +7,7 @@
 class SGraphPanel;
 class SGraphEditor;
 class UEdGraph;
+class UEdGraphNode;
 
 /**
  * Utility functions for finding editor context (graphs, viewports, etc.)
@@ -61,41 +62,4 @@ private:
 private:
     /** Maximum widget search depth - can be overridden for testing */
     static int32 GetMaxSearchDepth() { return 50; }
-    
-    /** Template helper for finding parent widgets by type */
-    template<typename T>
-    static TSharedPtr<T> FindParentWidgetOfType(const TSharedPtr<SWidget>& StartWidget);
 };
-
-template<typename T>
-TSharedPtr<T> FBlueLineContextUtils::FindParentWidgetOfType(const TSharedPtr<SWidget>& StartWidget)
-{
-    if (!StartWidget.IsValid())
-    {
-        return nullptr;
-    }
-
-    TSharedPtr<SWidget> CurrentWidget = StartWidget;
-    int32 Depth = 0;
-    const int32 MaxDepth = GetMaxSearchDepth();
-
-    while (CurrentWidget.IsValid() && Depth < MaxDepth)
-    {
-        // SAFETY: Strict type checking before casting
-        // Use dynamic_cast equivalent pattern for Slate widgets
-        TSharedPtr<T> Result = StaticCastSharedPtr<T>(CurrentWidget);
-        if (Result.IsValid())
-        {
-            // Verify the cast was correct by checking type name
-            if (CurrentWidget->GetType().ToString().Contains(T::GetTypeSlate().ToString()))
-            {
-                return Result;
-            }
-        }
-
-        CurrentWidget = CurrentWidget->GetParentWidget();
-        Depth++;
-    }
-
-    return nullptr;
-}

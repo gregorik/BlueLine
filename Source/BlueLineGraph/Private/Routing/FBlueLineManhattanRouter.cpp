@@ -78,53 +78,65 @@ void FBlueLineManhattanRouter::RigidifySelectedConnections()
 
 	if (!Graph) return;
 
-	// 2. Collection
+	// 2. Collection grouped by (Source, Target) to stagger MidX
 	struct FConnectionReq { FPersistentPin Out; FPersistentPin In; };
-	TArray<FConnectionReq> Requests;
+	TMap<TPair<UEdGraphNode*, UEdGraphNode*>, TArray<FConnectionReq>> RequestsByPair;
 
 	for (UEdGraphNode* Source : SelectedNodes)
 	{
+		if (!Source || Source->IsA<UK2Node_Knot>()) continue;
+
 		for (UEdGraphPin* OutputPin : Source->Pins)
 		{
 			if (OutputPin->Direction != EGPD_Output) continue;
 
 			for (UEdGraphPin* InputPin : OutputPin->LinkedTo)
 			{
-				UEdGraphNode* Target = InputPin->GetOwningNode();
+				UEdGraphNode* Target = InputPin ? InputPin->GetOwningNode() : nullptr;
+				if (!Target || Target->IsA<UK2Node_Knot>()) continue;
+
 				if (SelectedNodes.Contains(Target))
 				{
 					// Left-to-Right only
 					float MinSpacing = Settings ? Settings->MinRigidifySpacing : 100.0f;
 					if (Target->NodePosX > Source->NodePosX + MinSpacing)
 					{
-						Requests.Add({ FPersistentPin(OutputPin), FPersistentPin(InputPin) });
+						RequestsByPair.FindOrAdd(TPair<UEdGraphNode*, UEdGraphNode*>(Source, Target))
+							.Add({ FPersistentPin(OutputPin), FPersistentPin(InputPin) });
 					}
 				}
 			}
 		}
 	}
 
-	if (Requests.Num() == 0) return;
+	if (RequestsByPair.Num() == 0) return;
 
 	// 3. Execution
 	const FScopedTransaction Transaction(NSLOCTEXT("BlueLine", "Rigidify", "Rigidify Wires"));
 
-	// FIX: Explicitly modify the graph to capture state for Undo
+	// Explicitly modify the graph to capture state for Undo
 	Graph->Modify();
 
 	bool bGraphModified = false;
 
-	for (const FConnectionReq& Req : Requests)
+	for (auto& PairEntry : RequestsByPair)
 	{
-		// Refresh pointers immediately before use
-		UEdGraphPin* SafeOut = Req.Out.Get();
-		UEdGraphPin* SafeIn = Req.In.Get();
+		const TArray<FConnectionReq>& ReqList = PairEntry.Value;
+		const int32 Count = ReqList.Num();
 
-		if (SafeOut && SafeIn)
+		for (int32 i = 0; i < Count; ++i)
 		{
-			if (RouteConnection(SafeOut, SafeIn, Graph))
+			const FConnectionReq& Req = ReqList[i];
+			UEdGraphPin* SafeOut = Req.Out.Get();
+			UEdGraphPin* SafeIn = Req.In.Get();
+
+			if (SafeOut && SafeIn)
 			{
-				bGraphModified = true;
+				const float StaggerOffset = (Count > 1) ? ((float)i - (float)(Count - 1) * 0.5f) * 20.0f : 0.0f;
+				if (RouteConnection(SafeOut, SafeIn, Graph, StaggerOffset))
+				{
+					bGraphModified = true;
+				}
 			}
 		}
 	}
@@ -135,7 +147,7 @@ void FBlueLineManhattanRouter::RigidifySelectedConnections()
 	}
 }
 
-bool FBlueLineManhattanRouter::RouteConnection(UEdGraphPin* OutputPin, UEdGraphPin* InputPin, UEdGraph* Graph)
+bool FBlueLineManhattanRouter::RouteConnection(UEdGraphPin* OutputPin, UEdGraphPin* InputPin, UEdGraph* Graph, float StaggerOffset)
 {
 	// Store persistent handles
 	FPersistentPin SafeOut(OutputPin);
@@ -145,7 +157,7 @@ bool FBlueLineManhattanRouter::RouteConnection(UEdGraphPin* OutputPin, UEdGraphP
 	FVector2D End = GetPinPos(InputPin);
 
 	TArray<FVector2D> PathPoints;
-	CalculateManhattanPath(Start, End, PathPoints);
+	CalculateManhattanPath(Start, End, PathPoints, StaggerOffset);
 
 	if (PathPoints.Num() < 3) return false;
 
@@ -156,7 +168,6 @@ bool FBlueLineManhattanRouter::RouteConnection(UEdGraphPin* OutputPin, UEdGraphP
 	TArray<UK2Node_Knot*> Knots;
 	for (int32 i = 1; i < PathPoints.Num() - 1; ++i)
 	{
-		// FIX: Pass Type to Creation to ensure atomic state
 		UK2Node_Knot* Knot = CreateRerouteNode(Graph, PathPoints[i], ConnectionType);
 		if (Knot)
 		{
@@ -203,7 +214,7 @@ bool FBlueLineManhattanRouter::RouteConnection(UEdGraphPin* OutputPin, UEdGraphP
 	return true;
 }
 
-void FBlueLineManhattanRouter::CalculateManhattanPath(const FVector2D& Start, const FVector2D& End, TArray<FVector2D>& OutPoints)
+void FBlueLineManhattanRouter::CalculateManhattanPath(const FVector2D& Start, const FVector2D& End, TArray<FVector2D>& OutPoints, float StaggerOffset)
 {
 	OutPoints.Add(Start);
 
@@ -213,20 +224,15 @@ void FBlueLineManhattanRouter::CalculateManhattanPath(const FVector2D& Start, co
 	const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
 	
 	// Proximity and Alignment Thresholds
-	const float SafeBuffer = 100.0f;
 	float AlignmentThreshold = 10.0f;
 	if (Settings)
 	{
-		AlignmentThreshold = Settings->HorizontalStubLength * 0.2f; // 20% of stub length
+		AlignmentThreshold = Settings->HorizontalStubLength * 0.2f;
 	}
 
-	// 1. STRAIGHT LINE CASE: If nearly aligned vertically, just go straight to minimize knots
+	// 1. STRAIGHT LINE CASE: If nearly aligned vertically, just go straight
 	if (DeltaY < AlignmentThreshold && DeltaX > 0)
 	{
-		// No knots needed, but we keep the system consistent by adding 
-		// points that result in a straight line if knots are forced.
-		// However, RouteConnection will only create knots for points 1 to N-1.
-		// If we only have Start and End, 0 knots are created.
 		OutPoints.Add(End);
 		return;
 	}
@@ -235,35 +241,28 @@ void FBlueLineManhattanRouter::CalculateManhattanPath(const FVector2D& Start, co
 	float VerticalOffset = Settings ? Settings->VerticalOffset : 80.0f;
 
 	// 2. BACKWARDS OR VERTICALLY STACKED CASE:
-	// If the target is behind the source, or too close horizontally to make a clean Z-bend,
-	// we need to route around the nodes (C-shape or U-shape loop) to prevent clipping through them.
 	if (DeltaX < StubLength * 1.5f)
 	{
-		// Go right from source to clear it
 		OutPoints.Add(FVector2D(Start.X + StubLength, Start.Y));
 		
-		// Go down (or up) to clear the nodes. 
-		// If End is below Start, we route below End. If End is above Start, we route above End.
-		// A safe fallback is to use Max Y + Offset to drop below everything.
-		float ClearY = (End.Y >= Start.Y) ? (End.Y + VerticalOffset) : (End.Y - VerticalOffset);
+		float ClearY = (End.Y >= Start.Y) ?
+			(FMath::Max(Start.Y, End.Y) + VerticalOffset) :
+			(FMath::Min(Start.Y, End.Y) - VerticalOffset);
 		
 		OutPoints.Add(FVector2D(Start.X + StubLength, ClearY));
 		
-		// Go left past the target node's input pin, giving it a stub
-		// Target is at End.X. Target node's left edge is near End.X.
 		float TargetStubX = FMath::Min(End.X - StubLength, Start.X - StubLength);
 		OutPoints.Add(FVector2D(TargetStubX, ClearY));
 		
-		// Go up (or down) to target pin's Y
 		OutPoints.Add(FVector2D(TargetStubX, End.Y));
 		
 		OutPoints.Add(End);
 		return;
 	}
 
-	// 3. STANDARD CASE: Clear Z-Bend (Manhattan)
-	// We use the midpoint for the vertical transition
-	float MidX = Start.X + (DeltaX * 0.5f);
+	// 3. STANDARD CASE: Clear Z-Bend (Manhattan) with StaggerOffset
+	float MidX = Start.X + (DeltaX * 0.5f) + StaggerOffset;
+	MidX = FMath::Clamp(MidX, Start.X + StubLength, End.X - StubLength);
 
 	OutPoints.Add(FVector2D(MidX, Start.Y));
 	OutPoints.Add(FVector2D(MidX, End.Y));
@@ -275,20 +274,23 @@ UK2Node_Knot* FBlueLineManhattanRouter::CreateRerouteNode(UEdGraph* Graph, const
 	FGraphNodeCreator<UK2Node_Knot> NodeCreator(*Graph);
 	UK2Node_Knot* Knot = NodeCreator.CreateNode();
 
-	Knot->NodePosX = (int32)Position.X;
-	Knot->NodePosY = (int32)Position.Y;
+	int32 PosX = FMath::RoundToInt32(Position.X);
+	int32 PosY = FMath::RoundToInt32(Position.Y);
 
 	const UBlueLineEditorSettings* Settings = UBlueLineEditorSettings::Get();
-	if (Settings && Settings->bSnapReroutesToGrid)
+	if (Settings && Settings->bSnapReroutesToGrid && Settings->GridSnapSize > 0)
 	{
-		Knot->SnapToGrid(Settings->GridSnapSize);
+		PosX = FMath::GridSnap(PosX, Settings->GridSnapSize);
+		PosY = FMath::GridSnap(PosY, Settings->GridSnapSize);
 	}
+
+	// Knot pin center is at (+16, +16) relative to Knot node origin.
+	// Offset by -16 so the pin center aligns exactly with the path coordinate and grid.
+	Knot->NodePosX = PosX - 16;
+	Knot->NodePosY = PosY - 16;
 
 	Knot->AllocateDefaultPins();
 
-	// Set pin types BEFORE Finalize so the undo snapshot captures the correct types.
-	// Previously this was done after Finalize, which caused undo to restore wildcard pins
-	// and corrupt the graph with type mismatches.
 	if (UEdGraphPin* InPin = Knot->GetInputPin())
 	{
 		InPin->PinType = PinType;
@@ -316,33 +318,18 @@ FVector2D FBlueLineManhattanRouter::GetPinPos(UEdGraphPin* Pin)
 	UEdGraphNode* Node = Pin->GetOwningNode();
 	if (!Node) return FVector2D::ZeroVector;
 
-	float XOffset = 0.0f;
+	if (Node->IsA<UK2Node_Knot>())
+	{
+		return FVector2D((float)Node->NodePosX + 16.0f, (float)Node->NodePosY + 16.0f);
+	}
 
+	float XOffset = 0.0f;
 	if (Pin->Direction == EGPD_Output)
 	{
-		// Use actual node width if available, with a sane minimum for visibility.
-		// Knot nodes (reroutes) handled specifically to keep wires tight.
 		float Width = (float)Node->NodeWidth;
-		if (Node->IsA<UK2Node_Knot>())
-		{
-			// Knots are small dots, pins are effectively in the center (16,16)
-			XOffset = 16.0f;
-		}
-		else
-		{
-			// For regular nodes, ensure we clear the body. 
-			// If width isn't calculated yet (0), use a standard fallback.
-			XOffset = (Width > 0) ? Width : 128.0f;
-		}
-	}
-	else if (Node->IsA<UK2Node_Knot>())
-	{
-		// Input pin for a knot is also at the center
-		XOffset = 16.0f;
+		XOffset = (Width > 0) ? Width : 200.0f;
 	}
 
-	// Y-Offset heuristic
-	// Header is usually ~48 units. Standard pin height is ~24 units.
 	float YOffset = 48.0f;
 	const float PinHeight = 24.0f;
 	const float HalfPinHeight = 12.0f;
@@ -355,7 +342,6 @@ FVector2D FBlueLineManhattanRouter::GetPinPos(UEdGraphPin* Pin)
 			break;
 		}
 
-		// Only count pins on the same side (Direction) that are actually visible
 		if (P && P->Direction == Pin->Direction && !P->bHidden)
 		{
 			VisibleIndex++;
@@ -399,8 +385,11 @@ int32 FBlueLineManhattanRouter::CleanupOrphanedRerouteNodes(UEdGraph* Graph)
 
 	for (UEdGraphNode* Node : NodesToDestroy)
 	{
-		Graph->RemoveNode(Node);
-		Count++;
+		if (Node)
+		{
+			Node->DestroyNode();
+			Count++;
+		}
 	}
 
 	if (Count > 0)
@@ -410,5 +399,3 @@ int32 FBlueLineManhattanRouter::CleanupOrphanedRerouteNodes(UEdGraph* Graph)
 
 	return Count;
 }
-
-

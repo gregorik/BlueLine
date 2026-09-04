@@ -38,6 +38,7 @@ private:
     static void ExecuteAutoTagGraph();
 
     TSharedPtr<class FUICommandList> PluginCommands;
+    FDelegateHandle MainFrameLoadedHandle;
 
 	/** Name of the property name to customize (FGameplayTag) */
 	FName GameplayTagName;
@@ -45,4 +46,3 @@ private:
 	/** Name of the container struct to customize (FGameplayTagContainer) */
 	FName GameplayTagContainerName;
 };
-

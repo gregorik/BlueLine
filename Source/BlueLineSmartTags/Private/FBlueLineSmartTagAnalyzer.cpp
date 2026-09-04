@@ -212,6 +212,7 @@ void FBlueLineSmartTagAnalyzer::AutoTagGraph(UEdGraph* Graph, const TArray<UEdGr
             // Bounds.Min is top-left of the leftmost/topmost node
             // Bounds.Max is bottom-right of the rightmost/bottommost node
             UBlueLineTagCommentNode* CommentNode = NewObject<UBlueLineTagCommentNode>(Graph);
+            CommentNode->CreateNewGuid();
             
             // Position with padding - subtract padding to expand outward
             int32 CommentX = FMath::FloorToInt(Bounds.Min.X - Padding);
@@ -268,6 +269,8 @@ void FBlueLineSmartTagAnalyzer::AutoTagGraph(UEdGraph* Graph, const TArray<UEdGr
             CommentNode->AllocateDefaultPins();
         }
     }
+
+    Graph->NotifyGraphChanged();
 }
 
 void FBlueLineSmartTagAnalyzer::AnalyzeNodeSemantics(UEdGraphNode* Node, FSemanticContext& Context)

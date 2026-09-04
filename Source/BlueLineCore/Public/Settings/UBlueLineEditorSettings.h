@@ -356,6 +356,10 @@ public:
         meta = (EditCondition = "bEnableBlueLine", UIMin = "0.5", UIMax = "5.0"))
     float DebugLineThickness = 1.5f;
 
+    /** Expose internal demo K2 nodes in the Blueprint action menu */
+    UPROPERTY(EditAnywhere, Config, Category = "BlueLine|Debug|Advanced", meta = (EditCondition = "bEnableBlueLine"))
+    bool bExposeDemoNodes = false;
+
     //==========================================================================
     // EXPORT - File Operations
     //==========================================================================

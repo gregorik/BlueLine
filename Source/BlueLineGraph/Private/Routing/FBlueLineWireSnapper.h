@@ -1,10 +1,11 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #pragma once
 
 #include "CoreMinimal.h"
 #include "Framework/Application/IInputProcessor.h"
 #include "Templates/SharedPointer.h"
+#include "EdGraph/EdGraphPin.h"
 
 class FBlueLineWireSnapper : public IInputProcessor, public TSharedFromThis<FBlueLineWireSnapper>
 {
@@ -32,4 +33,5 @@ private:
     
     FVector2D DragOriginScreen;
     bool bHasDragOrigin = false;
+    FEdGraphPinReference DragSourcePin;
 };

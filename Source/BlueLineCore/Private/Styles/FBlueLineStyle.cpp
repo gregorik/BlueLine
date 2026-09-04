@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2026 GregOrigin. All Rights Reserved.
+// Copyright (c) 2026 GregOrigin. All Rights Reserved.
 
 #include "Styles/FBlueLineStyle.h"
 #include "Styling/SlateStyleRegistry.h"
@@ -57,7 +57,12 @@ TSharedRef<FSlateStyleSet> FBlueLineStyle::Create()
 	TSharedRef<FSlateStyleSet> Style = MakeShareable(new FSlateStyleSet(GetStyleSetName()));
 
 	// Locate the Resources folder relative to the Plugin root
-	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin("BlueLine");
+	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin("BlueLineCore");
+	if (!Plugin.IsValid())
+	{
+		Plugin = IPluginManager::Get().FindPlugin("BlueLine");
+	}
+
 	if (Plugin.IsValid())
 	{
 		Style->SetContentRoot(Plugin->GetBaseDir() / TEXT("Resources"));
@@ -65,7 +70,7 @@ TSharedRef<FSlateStyleSet> FBlueLineStyle::Create()
 	else
 	{
 		// Fallback for development scenarios
-		Style->SetContentRoot(FPaths::ProjectPluginsDir() / TEXT("BlueLine/Resources"));
+		Style->SetContentRoot(FPaths::ProjectPluginsDir() / TEXT("BlueLineCore/Resources"));
 	}
 
 	// Standard Icon Sizes
