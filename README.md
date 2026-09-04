@@ -53,23 +53,23 @@
 | :--- | :---: | :---: |
 | **Distribution & License** | Source Code (MIT) | Precompiled Binaries + Source (Epic Fab) |
 | **Engine Support** | **UE 5.5, 5.6, 5.7, 5.8+** | **UE 5.5, 5.6, 5.7, 5.8+** (Regular updates) |
-| **Magnet Auto-Format** | ✅ `<kbd>Shift</kbd> + <kbd>Q</kbd>` | ✅ `<kbd>Shift</kbd> + <kbd>Q</kbd>` |
-| **Manhattan Wire Rigidify** | ✅ `<kbd>Shift</kbd> + <kbd>R</kbd>` (Centered Knots) | ✅ `<kbd>Shift</kbd> + <kbd>R</kbd>` (Centered Knots) |
-| **Genetic Graph Cleaner** | ✅ `<kbd>Shift</kbd> + <kbd>C</kbd>` (GA Crossing Optimizer) | ✅ `<kbd>Shift</kbd> + <kbd>C</kbd>` (GA Crossing Optimizer) |
-| **Smart Semantic Auto-Tagging** | ✅ `<kbd>Shift</kbd> + <kbd>T</kbd>` (Knot Traversal) | ✅ `<kbd>Shift</kbd> + <kbd>T</kbd>` (Knot Traversal) |
+| **Magnet Auto-Format** | ✅ `Shift + Q` | ✅ `Shift + Q` |
+| **Manhattan Wire Rigidify** | ✅ `Shift + R` (Centered Knots) | ✅ `Shift + R` (Centered Knots) |
+| **Genetic Graph Cleaner** | ✅ `Shift + C` (GA Crossing Optimizer) | ✅ `Shift + C` (GA Crossing Optimizer) |
+| **Smart Semantic Auto-Tagging** | ✅ `Shift + T` (Knot Traversal) | ✅ `Shift + T` (Knot Traversal) |
 | **Magnetic Wire Pin Snapping** | ✅ Included (Compatibility Aware) | ✅ Included (Compatibility Aware) |
-| **Interactive Wire Style Cycling** | ✅ `<kbd>Shift</kbd> + <kbd>Alt</kbd> + <kbd>W</kbd>` | ✅ `<kbd>Shift</kbd> + <kbd>Alt</kbd> + <kbd>W</kbd>` |
+| **Interactive Wire Style Cycling** | ✅ `Shift + Alt + W` | ✅ `Shift + Alt + W` |
 | **Theme System & Data Asset Colors** | ✅ Included (`UBlueLineThemeData`) | ✅ Included (`UBlueLineThemeData`) |
 | **Runtime Debug Visualizer Library** | ✅ Included (`UBlueLineDebugLib`) | ✅ Included (`UBlueLineDebugLib`) |
 | **Context Menu & Benchmark Spawner** | ✅ Included (Right-Click Menu + Messy Demo) | ✅ Included (Right-Click Menu + Messy Demo) |
 | **Automated Regression Suite** | ✅ **10 Unit Tests** (Core Engine) | ✅ **16 Unit Tests** (Full Enterprise) |
-| **Level Viewport Radial Pie Menu** | ❌ Commercial only | ✅ `<kbd>Alt</kbd> + <kbd>X</kbd>` (Pivot & Cursor Snapping) |
+| **Level Viewport Radial Pie Menu** | ❌ Commercial only | ✅ `Alt + X` (Pivot & Cursor Snapping) |
 | **Material & Actor Scope Selection** | ❌ Commercial only | ✅ Included (Viewport Scope Filter) |
-| **Blueprint Subsystem Extractor** | ❌ Commercial only | ✅ `<kbd>Shift</kbd> + <kbd>B</kbd>` |
-| **Blueprint Graph Exporter to Text** | ❌ Commercial only | ✅ `<kbd>Shift</kbd> + <kbd>E</kbd>` (LLM / Debug Ready) |
-| **Quick Bookmarks System** | ❌ Commercial only | ✅ `<kbd>Alt</kbd> + <kbd>1..9</kbd>` / `<kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>1..9</kbd>` |
-| **Dockable Snippet Tab & Palette** | ❌ Commercial only | ✅ `<kbd>Shift</kbd> + <kbd>S</kbd>` / `<kbd>Shift</kbd> + <kbd>I</kbd>` |
-| **Static Blueprint Linter & CI/CD** | ❌ Commercial only | ✅ `<kbd>Shift</kbd> + <kbd>L</kbd>` + Commandlet |
+| **Blueprint Subsystem Extractor** | ❌ Commercial only | ✅ `Shift + B` |
+| **Blueprint Graph Exporter to Text** | ❌ Commercial only | ✅ `Shift + E` (LLM / Debug Ready) |
+| **Quick Bookmarks System** | ❌ Commercial only | ✅ `Alt + 1..9` / `Alt + Shift + 1..9` |
+| **Dockable Snippet Tab & Palette** | ❌ Commercial only | ✅ `Shift + S` / `Shift + I` |
+| **Static Blueprint Linter & CI/CD** | ❌ Commercial only | ✅ `Shift + L` + Commandlet |
 | **Zero-Latency Wireless Nodes** | ❌ Commercial only | ✅ `Decl` / `Use` Wireless Links |
 | **Interactive Setup Wizard** | ❌ Commercial only | ✅ Included (Slate Wizard Window) |
 | **Dedicated Epic Marketplace Support** | GitHub Issues | Direct Priority Email & Discord Role |
@@ -80,11 +80,11 @@
 
 | Hotkey | Action | Description |
 | :--- | :--- | :--- |
-| <kbd>Shift</kbd> + <kbd>Q</kbd> | **Magnet Align** | Non-destructive selection format: aligns selected nodes to the grid relative to input connections without moving unselected logic. Safe for VCS diffs. |
-| <kbd>Shift</kbd> + <kbd>R</kbd> | **Rigidify Wires** | Inserts grid-snapped Knots (Reroute Nodes) with sub-pixel centering `(CornerX - 16, CornerY - 16)` to turn curved wires into clean 90° Manhattan lines. |
-| <kbd>Shift</kbd> + <kbd>C</kbd> | **Clean Graph** | Global topological layout pass using Genetic Algorithm crossing reduction, pure-node flow, and comment box position locking. |
-| <kbd>Shift</kbd> + <kbd>T</kbd> | **Auto-Tag** | Scans cluster semantics across knots (Combat, Movement, AI, Data) and wraps nodes in colored `UBlueLineTagCommentNode` boxes. |
-| <kbd>Shift</kbd> + <kbd>Alt</kbd> + <kbd>W</kbd> | **Toggle Wire Style** | Cycles dynamically through Curved (Vanilla), Manhattan, Circuit Board, and Hybrid wire rendering styles. |
+| `Shift + Q` | **Magnet Align** | Non-destructive selection format: aligns selected nodes to the grid relative to input connections without moving unselected logic. Safe for VCS diffs. |
+| `Shift + R` | **Rigidify Wires** | Inserts grid-snapped Knots (Reroute Nodes) with sub-pixel centering `(CornerX - 16, CornerY - 16)` to turn curved wires into clean 90° Manhattan lines. |
+| `Shift + C` | **Clean Graph** | Global topological layout pass using Genetic Algorithm crossing reduction, pure-node flow, and comment box position locking. |
+| `Shift + T` | **Auto-Tag** | Scans cluster semantics across knots (Combat, Movement, AI, Data) and wraps nodes in colored `UBlueLineTagCommentNode` boxes. |
+| `Shift + Alt + W` | **Toggle Wire Style** | Cycles dynamically through Curved (Vanilla), Manhattan, Circuit Board, and Hybrid wire rendering styles. |
 
 ---
 
@@ -149,7 +149,7 @@ BlueLine Core ships with an integrated automated testing suite featuring **10 un
 | `ClusterDetection` | `BlueLine.Graph.Analyzer` | BFS graph partitioning across isolated logic blocks. |
 | `BoundsCalculation` | `BlueLine.Graph.Analyzer` | Validates cluster bounding box computation with Knot 32×32 bounding. |
 | `WireCrossings` | `BlueLine.Graph.Analyzer` | Geometric line intersection math with shared-endpoint exclusion. |
-| `ExecAlignment` | `BlueLine.Graph.Formatter` | `<kbd>Shift</kbd>+<kbd>Q</kbd>` downstream column push and horizontal exec pin Y-alignment. |
+| `ExecAlignment` | `BlueLine.Graph.Formatter` | `Shift+Q` downstream column push and horizontal exec pin Y-alignment. |
 | `CyclesAndComments` | `BlueLine.Graph.Cleaner` | Directed cyclic graphs and comment box position locking. |
 | `PureNodeFlow` | `BlueLine.Graph.Cleaner` | Left-of-consumer placement for pure nodes and straight exec wires. |
 | `KnotCenteringAndPinPos` | `BlueLine.Graph.Routing` | Sub-pixel `(NodePosX + 16, NodePosY + 16)` knot centering math. |
