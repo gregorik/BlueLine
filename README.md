@@ -4,7 +4,7 @@
 ### Clean Wires • Shared Tags • Pure Blueprint Architecture
 
 [![Unreal Engine](https://img.shields.io/badge/Unreal%20Engine-5.5%20--%205.8%2B-0E1128?style=for-the-badge&logo=unrealengine&logoColor=white)](https://www.unrealengine.com/)
-[![Version](https://img.shields.io/badge/Release-v1.2.0-007ACC?style=for-the-badge&logo=github)](BlueLineCore.uplugin)
+[![Version](https://img.shields.io/badge/Release-v0.2.0-007ACC?style=for-the-badge&logo=github)](BlueLineCore.uplugin)
 [![C++](https://img.shields.io/badge/C%2B%2B-20%20%2F%2017-00599C?style=for-the-badge&logo=cplusplus&logoColor=white)](https://isocpp.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-success.svg?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Win64%20%7C%20Mac%20%7C%20Linux-lightgrey?style=for-the-badge)](BlueLineCore.uplugin)
@@ -37,7 +37,7 @@
 
 <br/>
 
-**BlueLine Core (v1.2.0)** is the lightweight, modular, open-source Blueprint productivity & wire-organization plugin for **Unreal Engine 5.5 floor through 5.8+**. Built specifically for high-velocity teams and complex graph architectures, it eliminates "Spaghetti Code" by delivering non-destructive grid formatting, orthogonal Manhattan wire pathfinding with sub-pixel knot centering, Genetic Algorithm crossing minimization, magnetic pin snapping, and semantic smart tag categorization.
+**BlueLine Core (v0.2.0)** is the lightweight, modular, open-source Blueprint productivity & wire-organization plugin for **Unreal Engine 5.5 floor through 5.8+**. Built specifically for high-velocity teams and complex graph architectures, it eliminates "Spaghetti Code" by delivering non-destructive grid formatting, orthogonal Manhattan wire pathfinding with sub-pixel knot centering, Genetic Algorithm crossing minimization, magnetic pin snapping, and semantic smart tag categorization.
 
 <br/>
 

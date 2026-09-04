@@ -5,7 +5,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
-## [1.2.0] — 2026-09-04
+## [0.2.0] — 2026-09-04
 
 ### 🌟 Major Release Highlights
 
@@ -81,21 +81,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
-## [1.1.0] — 2026-02-15
-
-### Added
-* Semantic tag clustering engine (`FBlueLineSmartTagAnalyzer`) for automatic graph categorization into Combat, Movement, UI, AI, and Networking tags.
-* "Spawn Messy Demo" right-click context menu action for live stress-testing formatting tools.
-* Pin-level wire crossing calculations using pin offsets instead of whole-node center points.
-* Shared endpoint exemption in line intersection math.
-
-### Changed
-* Refactored wire snapping (`FBlueLineWireSnapper`) to track `DragSourcePin` and prevent invalid pin snaps.
-* Renamed toggle wire style shortcut to `Shift+Alt+W` to avoid conflicts with player ejection in PIE.
-
----
-
-## [1.0.0] — 2026-02-01
+## [0.1.0] — 2026-08-31
 
 ### Added
 * Initial open-source release of BlueLine Core under the MIT License.
@@ -103,5 +89,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 * Automatic connection interceptor (`FBlueLineConnectionInterceptor`).
 * Selection-only Magnet auto-formatter (`BlueLineFormatter`).
 * Graph complexity metric analyzer (`FBlueLineGraphAnalyzer`).
+* Semantic tag clustering engine (`FBlueLineSmartTagAnalyzer`) for automatic graph categorization.
 * Shared team theme data asset system (`UBlueLineThemeData`).
 * Runtime 3D world text debug visualizer (`UBlueLineDebugLib`).
